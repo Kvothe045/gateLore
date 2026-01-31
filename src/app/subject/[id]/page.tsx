@@ -80,18 +80,19 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     return () => document.removeEventListener("fullscreenchange", onFSChange);
   }, [id, defaultSubject, router]);
 
-  // --- ORIENTATION LOGIC (Mobile Landscape) ---
+  // --- ORIENTATION LOGIC (Type-Safe Fix) ---
   const lockOrientation = async () => {
-    // @ts-ignore
-    if (screen.orientation && 'lock' in screen.orientation) {
-      try { await screen.orientation.lock('landscape'); } catch (e) { console.log('Orientation lock not supported'); }
+    // Cast to 'any' to bypass TypeScript checks on experimental API
+    const screenAny = window.screen as any;
+    if (screenAny.orientation && screenAny.orientation.lock) {
+      try { await screenAny.orientation.lock('landscape'); } catch (e) { console.log('Orientation lock not supported or denied'); }
     }
   };
   
   const unlockOrientation = async () => {
-    // @ts-ignore
-    if (screen.orientation && 'unlock' in screen.orientation) {
-      try { await screen.orientation.unlock(); } catch (e) {}
+    const screenAny = window.screen as any;
+    if (screenAny.orientation && screenAny.orientation.unlock) {
+      try { await screenAny.orientation.unlock(); } catch (e) {}
     }
   };
 
@@ -365,23 +366,23 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                 )}
               </AnimatePresence>
               
-              {/* CUSTOM CONTROL DECK */}
-              <div className={`absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-20 pb-4 px-4 sm:px-6 transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={(e) => e.stopPropagation()}>
+              {/* CUSTOM OVERLAY CONTROLS */}
+              <div className={`absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-20 pb-4 px-4 sm:px-6 transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={(e) => e.stopPropagation()}>
                 
-                {/* SCRUBBER - REFINED (Solid, No Gradient Mess) */}
+                {/* SCRUBBER - SOLID INDIGO + CONSTANT WHITE HEAD */}
                 <div className="relative group/scrubber h-1.5 hover:h-2.5 transition-all cursor-pointer mb-6 flex items-center">
                     {/* Track */}
                     <div className="absolute inset-0 bg-white/20 rounded-full" />
                     
-                    {/* Fill - Solid Indigo (Clean & High Contrast) */}
+                    {/* Fill - Solid Indigo (High Contrast) */}
                     <div 
-                        className="absolute inset-y-0 left-0 bg-indigo-500 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.6)]" 
+                        className="absolute inset-y-0 left-0 bg-indigo-500 rounded-full" 
                         style={{ width: `${progress}%` }} 
                     />
                     
-                    {/* Head - Constant Solid White */}
+                    {/* Head - Constant Solid White (Always visible, scales on hover) */}
                     <div 
-                        className="absolute h-3.5 w-3.5 bg-white rounded-full shadow-lg z-20" 
+                        className="absolute h-4 w-4 bg-white rounded-full shadow-[0_0_10px_rgba(0,0,0,0.5)] z-20 group-hover/scrubber:scale-125 transition-transform" 
                         style={{ left: `${progress}%`, transform: 'translateX(-50%)' }} 
                     />
                     
