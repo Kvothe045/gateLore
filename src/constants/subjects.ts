@@ -1,6 +1,6 @@
 // src/constants/subjects.ts
 export const SUBJECTS = [
-  { id: 4, name: "Data Structures", status: "unlocked", startDate: "Jan 01", endDate: "Oct 31" },
+  { id: 4, name: "Data Structures", status: "unlocked", startDate: "Jan 01", endDate: "Oct 1" },
   { id: 101, name: "C Programming", status: "locked", startDate: "Feb 05", endDate: "Oct 31" },
   { id: 102, name: "Algorithms", status: "locked", startDate: "Feb 20", endDate: "Oct 31" },
   { id: 103, name: "Discrete Mathematics", status: "locked", startDate: "Mar 10", endDate: "Oct 31" },

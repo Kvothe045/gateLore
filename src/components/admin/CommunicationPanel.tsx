@@ -1,16 +1,15 @@
-//src/components/admin/CommunicationPanel.tsx
 "use client";
 import { useState, useEffect } from "react";
-import { InboxMessage } from "@/types/admin";
 import { adminApi } from "@/lib/admin-api";
-import { Bell, Mail, Trash2, Send } from "lucide-react";
+import { Bell, Mail, Trash2, Send, X } from "lucide-react";
+import { InboxMessage } from "@/types/admin";
 
 export default function CommunicationPanel() {
   const [messages, setMessages] = useState<InboxMessage[]>([]);
   const [broadcastMsg, setBroadcastMsg] = useState("");
+  const [currentBroadcast, setCurrentBroadcast] = useState(""); // Track active one
   const [loading, setLoading] = useState(false);
 
-  // Poll for messages every 30s
   useEffect(() => {
     loadInbox();
     const interval = setInterval(loadInbox, 30000);
@@ -19,8 +18,13 @@ export default function CommunicationPanel() {
 
   const loadInbox = async () => {
     try {
-      const data = await adminApi.getInbox();
-      if (Array.isArray(data)) setMessages(data);
+      const msgs = await adminApi.getInbox();
+      if (Array.isArray(msgs)) setMessages(msgs);
+      
+      // Also fetch current broadcast to show deletion state
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/broadcast`);
+      const data = await res.json();
+      setCurrentBroadcast(data.message);
     } catch (e) { console.error("Inbox Error"); }
   };
 
@@ -28,13 +32,19 @@ export default function CommunicationPanel() {
     if (!broadcastMsg) return;
     setLoading(true);
     await adminApi.broadcast(broadcastMsg);
+    setCurrentBroadcast(broadcastMsg);
     setBroadcastMsg("");
     setLoading(false);
-    alert("📢 Announcement Sent Live!");
+  };
+
+  const handleDeleteBroadcast = async () => {
+    if(!confirm("Remove current announcement?")) return;
+    await adminApi.deleteBroadcast();
+    setCurrentBroadcast("");
   };
 
   const clearAllMessages = async () => {
-    if (confirm("Delete ALL messages? This cannot be undone.")) {
+    if (confirm("Delete ALL messages?")) {
       await adminApi.clearInbox();
       setMessages([]);
     }
@@ -42,12 +52,25 @@ export default function CommunicationPanel() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
-      
-      {/* LEFT: Broadcast System */}
-      <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6">
+      {/* LEFT: Broadcast */}
+      <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 relative">
         <h3 className="text-sm font-bold text-slate-400 flex items-center gap-2 mb-4">
           <Bell className="w-4 h-4" /> LIVE ANNOUNCEMENT
         </h3>
+        
+        {/* Active Announcement Preview */}
+        {currentBroadcast && (
+           <div className="mb-4 p-3 bg-green-900/10 border border-green-500/20 rounded flex justify-between items-center">
+             <div>
+               <p className="text-[10px] text-green-500 font-bold mb-1">CURRENTLY LIVE:</p>
+               <p className="text-xs text-green-100">{currentBroadcast}</p>
+             </div>
+             <button onClick={handleDeleteBroadcast} className="p-2 hover:bg-red-500/20 text-red-500 rounded transition-colors">
+               <Trash2 className="w-4 h-4" />
+             </button>
+           </div>
+        )}
+
         <textarea
           value={broadcastMsg}
           onChange={(e) => setBroadcastMsg(e.target.value)}
@@ -64,8 +87,8 @@ export default function CommunicationPanel() {
         </button>
       </div>
 
-      {/* RIGHT: Student Inbox */}
-      <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 flex flex-col h-64">
+      {/* RIGHT: Inbox */}
+      <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 flex flex-col h-80">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-sm font-bold text-slate-400 flex items-center gap-2">
             <Mail className="w-4 h-4" /> STUDENT MESSAGES
@@ -76,7 +99,6 @@ export default function CommunicationPanel() {
             </button>
           )}
         </div>
-
         <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-600">

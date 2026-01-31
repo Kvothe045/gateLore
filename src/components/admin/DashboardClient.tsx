@@ -1,25 +1,21 @@
 "use client";
 import { useState, useEffect } from "react";
-import { SUBJECTS } from "@/constants/subjects";
 import { adminApi } from "@/lib/admin-api";
-import { Folder, Lock, Unlock, RefreshCw, Save, Trash2, Power, Edit2, X, Search } from "lucide-react";
+import { Folder, Lock, Unlock, RefreshCw, Save, Trash2, Power, Edit2, X, Search, Calendar } from "lucide-react";
 import { signOut } from "next-auth/react";
 import StorageMonitor from "./StorageMonitor";
 import CommunicationPanel from "./CommunicationPanel";
-import FileManager from "./FileManager"; // Import the new component
+import FileManager from "./FileManager";
 import { StorageStats } from "@/types/admin";
 
 export default function DashboardClient() {
-  const [subjects, setSubjects] = useState(SUBJECTS);
+  const [subjects, setSubjects] = useState<any[]>([]);
   const [folders, setFolders] = useState<any[]>([]);
   const [storage, setStorage] = useState<StorageStats>({ total: 1, used: 0, free: 0 });
   const [loading, setLoading] = useState(false);
   
-  // Editing State
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<any>(null);
-
-  // File Manager State
   const [inspectingFolder, setInspectingFolder] = useState<string | null>(null);
 
   useEffect(() => { refreshSystem(); }, []);
@@ -30,6 +26,8 @@ export default function DashboardClient() {
       const data = await adminApi.getSystemStats();
       setFolders(data.folders);
       setStorage(data.storage);
+      // Load subjects from VM config, not local constant
+      if (data.subjects) setSubjects(data.subjects);
     } catch (e) {
       console.error("Backend unreachable");
     } finally {
@@ -40,6 +38,8 @@ export default function DashboardClient() {
   const toggleStatus = async (index: number) => {
     const sub = subjects[index];
     const newStatus = sub.status === "locked" ? "unlocked" : "locked";
+    
+    // Optimistic Update
     const updated = [...subjects];
     updated[index].status = newStatus;
     setSubjects(updated);
@@ -52,21 +52,28 @@ export default function DashboardClient() {
       );
       if (newStatus === "locked") refreshSystem();
     } catch (e) {
-      alert("Command Failed: Backend Unreachable");
+      alert("Command Failed");
+      refreshSystem(); // Revert
     }
   };
 
   const startEdit = (sub: any) => { setEditingId(sub.id); setEditForm({ ...sub }); };
   
-  const saveEdit = () => {
+  const saveEdit = async () => {
     const updated = subjects.map(s => s.id === editingId ? editForm : s);
     setSubjects(updated);
     setEditingId(null);
+    
+    // Save to VM
+    try {
+      await adminApi.updateSubjects(updated);
+    } catch (e) {
+      alert("Failed to save config to VM");
+    }
   };
 
   return (
     <div className="max-w-7xl mx-auto p-6 pb-20 relative">
-      {/* File Manager Modal */}
       {inspectingFolder && (
         <FileManager 
           folderName={inspectingFolder} 
@@ -94,7 +101,6 @@ export default function DashboardClient() {
       <StorageMonitor stats={storage} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* LEFT: Subject Config */}
         <div className="lg:col-span-2 space-y-6">
           <h2 className="text-xl font-bold font-mono text-slate-400 flex items-center gap-2">
             <Save className="w-5 h-5" /> SUBJECT CONFIGURATION
@@ -106,7 +112,8 @@ export default function DashboardClient() {
                   <th className="p-4">Status</th>
                   <th className="p-4">ID</th>
                   <th className="p-4">Name</th>
-                  <th className="p-4">Date</th>
+                  <th className="p-4">Start</th>
+                  <th className="p-4">End</th>
                   <th className="p-4 text-right">Edit</th>
                 </tr>
               </thead>
@@ -130,7 +137,7 @@ export default function DashboardClient() {
                       </td>
                       <td className="p-4 font-mono text-blue-400">
                         {isEditing ? (
-                          <input type="number" value={editForm.id} onChange={e => setEditForm({...editForm, id: parseInt(e.target.value)})} className="bg-black border border-white/20 rounded px-2 py-1 w-20 outline-none focus:border-magenta-500" />
+                          <input type="number" value={editForm.id} onChange={e => setEditForm({...editForm, id: parseInt(e.target.value)})} className="bg-black border border-white/20 rounded px-2 py-1 w-16 outline-none focus:border-magenta-500" />
                         ) : sub.id}
                       </td>
                       <td className="p-4 font-medium">
@@ -138,10 +145,15 @@ export default function DashboardClient() {
                           <input type="text" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="bg-black border border-white/20 rounded px-2 py-1 w-full outline-none focus:border-magenta-500" />
                         ) : sub.name}
                       </td>
-                      <td className="p-4 text-slate-400">
+                      <td className="p-4 text-slate-400 font-mono text-xs">
                         {isEditing ? (
-                          <input type="text" value={editForm.startDate} onChange={e => setEditForm({...editForm, startDate: e.target.value})} className="bg-black border border-white/20 rounded px-2 py-1 w-24 outline-none focus:border-magenta-500" />
+                          <input type="text" value={editForm.startDate} onChange={e => setEditForm({...editForm, startDate: e.target.value})} className="bg-black border border-white/20 rounded px-2 py-1 w-20 outline-none focus:border-magenta-500" />
                         ) : sub.startDate}
+                      </td>
+                      <td className="p-4 text-magenta-400 font-mono text-xs">
+                        {isEditing ? (
+                          <input type="text" value={editForm.endDate} onChange={e => setEditForm({...editForm, endDate: e.target.value})} className="bg-black border border-white/20 rounded px-2 py-1 w-20 outline-none focus:border-magenta-500" />
+                        ) : sub.endDate}
                       </td>
                       <td className="p-4 text-right">
                         {isEditing ? (
@@ -161,7 +173,6 @@ export default function DashboardClient() {
           </div>
         </div>
 
-        {/* RIGHT: Active Cache */}
         <div className="space-y-6">
           <h2 className="text-xl font-bold font-mono text-slate-400 flex items-center gap-2">
             <Folder className="w-5 h-5" /> ACTIVE CACHE
