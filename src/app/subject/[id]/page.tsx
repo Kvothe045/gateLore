@@ -74,18 +74,17 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     const onFSChange = () => {
         const isFS = !!document.fullscreenElement;
         setIsFullscreen(isFS);
-        if(!isFS) unlockOrientation(); // Revert to portrait on exit
+        if(!isFS) unlockOrientation();
     };
     document.addEventListener("fullscreenchange", onFSChange);
     return () => document.removeEventListener("fullscreenchange", onFSChange);
   }, [id, defaultSubject, router]);
 
-  // --- ORIENTATION LOGIC (Type-Safe Fix) ---
+  // --- MOBILE ORIENTATION ---
   const lockOrientation = async () => {
-    // Cast to 'any' to bypass TypeScript checks on experimental API
     const screenAny = window.screen as any;
     if (screenAny.orientation && screenAny.orientation.lock) {
-      try { await screenAny.orientation.lock('landscape'); } catch (e) { console.log('Orientation lock not supported or denied'); }
+      try { await screenAny.orientation.lock('landscape'); } catch (e) { console.log('Lock failed'); }
     }
   };
   
@@ -96,14 +95,15 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     }
   };
 
-  // --- CONTROLS VISIBILITY ---
+  // --- CONTROLS VISIBILITY (Refined) ---
   const showControlsBriefly = useCallback(() => {
     setControlsVisible(true);
     document.body.style.cursor = 'auto';
     
+    // Clear any existing timer to prevent flickering or early hiding
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     
-    // Auto-hide after 3s if playing
+    // Only set auto-hide if playing
     if (!videoRef.current?.paused) {
         controlsTimeoutRef.current = setTimeout(() => {
             setControlsVisible(false);
@@ -111,6 +111,12 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
         }, 3000);
     }
   }, [isFullscreen]);
+
+  // Handle manual interaction (e.g., clicking controls shouldn't hide them immediately)
+  const keepControlsVisible = () => {
+    setControlsVisible(true);
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+  };
 
   useEffect(() => {
     return () => { if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); };
@@ -121,8 +127,14 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300;
     
+    // Prevent interaction with controls from triggering this
+    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('input')) {
+        keepControlsVisible();
+        return;
+    }
+
     if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
-      // Double Tap
+      // DOUBLE TAP
       if (!videoRef.current || !playerContainerRef.current) return;
       let clientX;
       if ('touches' in e) clientX = e.touches[0].clientX;
@@ -146,8 +158,20 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
       }
       showControlsBriefly();
     } else {
-       // Single Tap
-       showControlsBriefly();
+       // SINGLE TAP - Toggle Controls on Mobile, just show on Desktop
+       const isMobile = window.innerWidth < 1024;
+       if (isMobile) {
+           if (controlsVisible) {
+               // If visible, hide immediately (manual dismiss)
+               setControlsVisible(false);
+               if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+           } else {
+               // If hidden, show
+               showControlsBriefly();
+           }
+       } else {
+           showControlsBriefly();
+       }
     }
     lastTapRef.current = now;
   };
@@ -197,11 +221,16 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    keepControlsVisible(); // Keep showing while seeking
     const val = parseFloat(e.target.value);
     if (!videoRef.current) return;
     const time = (val / 100) * videoRef.current.duration;
     videoRef.current.currentTime = time;
     setProgress(val);
+  };
+
+  // Resume auto-hide after seeking ends
+  const onSeekEnd = () => {
     showControlsBriefly();
   };
 
@@ -214,13 +243,12 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
 
   const toggleFullscreen = async () => {
     if (!playerContainerRef.current) return;
-    
     if (!document.fullscreenElement) {
         await playerContainerRef.current.requestFullscreen();
-        if (window.innerWidth < 768) lockOrientation(); // Force Landscape
+        if (window.innerWidth < 768) lockOrientation(); 
     } else {
         await document.exitFullscreen();
-        unlockOrientation(); // Revert
+        unlockOrientation(); 
     }
     showControlsBriefly();
   };
@@ -296,12 +324,10 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                 className="w-80 md:w-96 bg-zinc-950/95 md:bg-zinc-950/50 backdrop-blur-xl md:backdrop-blur-none border-r border-white/5 flex flex-col z-50 md:z-20 fixed md:relative h-full shadow-2xl md:shadow-none"
               >
                 <button onClick={() => setIsMobileSidebarOpen(false)} className="md:hidden absolute top-4 right-4 p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"><X className="w-4 h-4" /></button>
-                
                 <div className="flex border-b border-white/5 pt-12 md:pt-0">
                   <button onClick={() => setActiveTab('modules')} className={`flex-1 py-3 md:py-4 text-xs font-bold tracking-widest transition-colors ${activeTab === 'modules' ? 'text-white bg-white/5 border-b-2 border-indigo-500' : 'text-slate-600 hover:text-slate-400'}`}>MODULES</button>
                   <button onClick={() => setActiveTab('resources')} className={`flex-1 py-3 md:py-4 text-xs font-bold tracking-widest transition-colors ${activeTab === 'resources' ? 'text-white bg-white/5 border-b-2 border-blue-500' : 'text-slate-600 hover:text-slate-400'}`}>RESOURCES</button>
                 </div>
-
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
                    {loading ? (
                       <div className="flex justify-center p-10"><Loader2 className="animate-spin text-indigo-500"/></div>
@@ -354,7 +380,6 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                     </div>
                   </div>
                 )}
-                
                 {doubleTapFeedback && (
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.5 }}
@@ -366,56 +391,62 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                 )}
               </AnimatePresence>
               
-              {/* CUSTOM OVERLAY CONTROLS */}
-              <div className={`absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-20 pb-4 px-4 sm:px-6 transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={(e) => e.stopPropagation()}>
+              {/* CUSTOM CONTROLS OVERLAY */}
+              <div className={`absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-black/95 via-black/80 to-transparent pt-24 pb-safe px-6 transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={(e) => e.stopPropagation()}>
                 
-                {/* SCRUBBER - SOLID INDIGO + CONSTANT WHITE HEAD */}
-                <div className="relative group/scrubber h-1.5 hover:h-2.5 transition-all cursor-pointer mb-6 flex items-center">
-                    {/* Track */}
+                {/* SCRUBBER - REFINED (Solid, No Ghosting) */}
+                <div className="relative group/scrubber h-1.5 hover:h-2.5 transition-all cursor-pointer mb-6 flex items-center select-none">
+                    {/* Background Track */}
                     <div className="absolute inset-0 bg-white/20 rounded-full" />
                     
-                    {/* Fill - Solid Indigo (High Contrast) */}
+                    {/* Fill - Solid Indigo */}
                     <div 
                         className="absolute inset-y-0 left-0 bg-indigo-500 rounded-full" 
                         style={{ width: `${progress}%` }} 
                     />
                     
-                    {/* Head - Constant Solid White (Always visible, scales on hover) */}
+                    {/* Head - Constant Solid White (The Custom Thumb) */}
                     <div 
                         className="absolute h-4 w-4 bg-white rounded-full shadow-[0_0_10px_rgba(0,0,0,0.5)] z-20 group-hover/scrubber:scale-125 transition-transform" 
                         style={{ left: `${progress}%`, transform: 'translateX(-50%)' }} 
                     />
                     
+                    {/* Input - Using custom CSS class to hide browser thumb */}
                     <input 
                         type="range" min="0" max="100" step="0.1" 
-                        value={progress} onChange={handleSeek} 
-                        className="absolute inset-0 w-full opacity-0 cursor-pointer z-30" 
+                        value={progress} 
+                        onChange={handleSeek} 
+                        onMouseUp={onSeekEnd}
+                        onTouchEnd={onSeekEnd}
+                        className="absolute inset-0 w-full opacity-0 cursor-pointer z-30 range-input-hidden-thumb" 
                     />
                 </div>
 
                 <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+                    {/* Left Controls */}
+                    <div className="flex items-center gap-6">
                         <button onClick={() => { if(videoRef.current?.paused) videoRef.current.play(); else videoRef.current?.pause(); }} className="hover:text-indigo-400 text-white transition-colors">
-                            {videoRef.current?.paused ? <Play className="w-6 h-6 fill-current"/> : <div className="w-6 h-6 flex gap-1 justify-center"><div className="w-2 bg-current rounded"/><div className="w-2 bg-current rounded"/></div>}
+                            {videoRef.current?.paused ? <Play className="w-8 h-8 fill-current"/> : <div className="w-8 h-8 flex gap-1 justify-center items-center"><div className="w-2.5 h-6 bg-current rounded"/><div className="w-2.5 h-6 bg-current rounded"/></div>}
                         </button>
                         <button onClick={() => setShowTips(!showTips)} className="text-slate-300 hover:text-white"><HelpCircle className="w-5 h-5"/></button>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    {/* Right Controls */}
+                    <div className="flex items-center gap-6">
                         <div className="relative">
-                            <button onClick={() => setShowSpeedMenu(!showSpeedMenu)} className="flex items-center gap-1 px-2 py-1 bg-white/10 rounded text-xs font-bold text-white border border-white/5 hover:bg-zinc-800">
-                                <Zap className="w-3 h-3 text-yellow-400 fill-current" /> {playbackSpeed}x
+                            <button onClick={() => setShowSpeedMenu(!showSpeedMenu)} className="flex items-center gap-1 px-3 py-1.5 bg-white/10 rounded text-xs font-bold text-white border border-white/5 hover:bg-zinc-800 transition-colors">
+                                <Zap className="w-3.5 h-3.5 text-yellow-400 fill-current" /> {playbackSpeed}x
                             </button>
                             <AnimatePresence>
                                 {showSpeedMenu && (
-                                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute bottom-full right-0 mb-2 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden min-w-[80px] pointer-events-auto">
-                                        {speedOptions.map((speed) => (<button key={speed} onClick={() => changeSpeed(speed)} className={`block w-full text-left px-4 py-2 text-xs font-mono transition-colors ${playbackSpeed === speed ? 'bg-indigo-500/20 text-indigo-300 font-bold' : 'text-slate-300 hover:bg-white/5'}`}>{speed}x</button>))}
+                                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute bottom-full right-0 mb-3 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden min-w-[80px] pointer-events-auto">
+                                        {speedOptions.map((speed) => (<button key={speed} onClick={() => changeSpeed(speed)} className={`block w-full text-left px-4 py-2.5 text-xs font-mono transition-colors ${playbackSpeed === speed ? 'bg-indigo-500/20 text-indigo-300 font-bold' : 'text-slate-300 hover:bg-white/5'}`}>{speed}x</button>))}
                                     </motion.div>
                                 )}
                             </AnimatePresence>
                         </div>
-                        <button onClick={toggleFullscreen} className="p-2 md:p-2.5 bg-zinc-900/60 backdrop-blur rounded-full text-slate-300 hover:text-white hover:bg-white/10 border border-white/5 shadow-lg active:scale-95 transition-all">
-                            {isFullscreen ? (<Minimize className="w-4 md:w-5 h-4 md:h-5"/>) : (<Maximize className="w-4 md:w-5 h-4 md:h-5"/>)}
+                        <button onClick={toggleFullscreen} className="text-slate-300 hover:text-white transition-colors">
+                            {isFullscreen ? (<Minimize className="w-6 h-6"/>) : (<Maximize className="w-6 h-6"/>)}
                         </button>
                     </div>
                 </div>
@@ -427,42 +458,38 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
             </div>
           ) : (
             // --- IDLE STATE: "EVENT HORIZON" ---
-            <div className="flex flex-col items-center justify-center h-full px-6 text-center animate-fade-in w-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-900 via-black to-black">
+            <div className="flex flex-col items-center justify-center h-full px-6 text-center animate-fade-in w-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-900 via-black to-black">
               
-              {/* The "Event Horizon" Animation */}
               <div className="relative mb-14">
-                 {/* Outer Ring */}
                  <motion.div 
                    animate={{ rotate: 360 }} 
-                   transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
-                   className="w-56 h-56 rounded-full border border-white/5 border-dashed"
+                   transition={{ duration: 60, repeat: Infinity, ease: "linear" }}
+                   className="w-64 h-64 rounded-full border border-white/5 border-dashed"
                  />
-                 {/* Inner Pulse */}
                  <motion.div 
-                   animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.5, 0.2] }} 
-                   transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-                   className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl"
+                   animate={{ scale: [1, 1.1, 1], opacity: [0.1, 0.3, 0.1] }} 
+                   transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+                   className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 bg-indigo-500/10 rounded-full blur-3xl"
                  />
-                 {/* Core Line */}
                  <motion.div 
-                   initial={{ height: 0 }} animate={{ height: 60 }} 
+                   initial={{ height: 0 }} animate={{ height: 80 }} 
                    transition={{ duration: 1.5, ease: "easeOut" }}
-                   className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1px] bg-gradient-to-b from-transparent via-white/50 to-transparent"
+                   className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1px] bg-gradient-to-b from-transparent via-white/40 to-transparent"
                  />
+                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2">
+                    <span className="text-[10px] font-mono text-slate-500 tracking-[0.3em] uppercase">Gateway</span>
+                    <span className="text-[10px] font-mono text-indigo-500 tracking-widest uppercase">Online</span>
+                 </div>
               </div>
               
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
-                <h2 className="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-white/20 tracking-tighter mb-6 uppercase">
+                <h2 className="text-3xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-b from-white to-white/20 tracking-tighter mb-6">
                   {subjectData.name}
                 </h2>
                 
-                <div className="relative max-w-xl mx-auto">
-                  <span className="absolute -top-4 -left-4 text-4xl text-white/5 font-serif">"</span>
-                  <p className="text-base md:text-xl text-slate-300 font-light leading-relaxed italic tracking-wide">
-                    If you don&apos;t put <span className="text-white font-medium">everything you have</span> into achieving your dreams, you will end up <span className="text-white border-b border-indigo-500/50 pb-0.5">regretting it</span> in life.
-                  </p>
-                  <span className="absolute -bottom-4 -right-4 text-4xl text-white/5 font-serif">"</span>
-                </div>
+                <p className="text-sm md:text-xl text-slate-400 font-light leading-relaxed max-w-2xl mx-auto italic tracking-wide">
+                  &quot;If you don&apos;t put <span className="text-white font-normal">everything you have</span> into achieving your dreams, you will end up <span className="text-white border-b border-indigo-500/30 pb-0.5">regretting it</span> in life.&quot;
+                </p>
 
                 <button 
                     onClick={() => setIsMobileSidebarOpen(true)} 
@@ -471,11 +498,10 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                     <Smartphone className="w-4 h-4" /> Initialize
                 </button>
 
-                {/* Hosting Notice */}
                 <div className="mt-16 flex items-start justify-center gap-3 max-w-md mx-auto opacity-50 hover:opacity-100 transition-opacity">
                    <Server className="w-3 h-3 text-indigo-500 shrink-0 mt-0.5" />
                    <p className="text-[9px] font-mono text-slate-500 text-left leading-relaxed">
-                     <span className="text-indigo-400 font-bold">SYSTEM NOTICE:</span> Content will be purged from the server immediately after the deadline to reallocate bandwidth for new modules. Completion is mandatory.
+                     <span className="text-indigo-400 font-bold">SYSTEM NOTICE:</span> Content will be purged immediately after the deadline to reallocate bandwidth. Completion is mandatory.
                    </p>
                 </div>
               </motion.div>
@@ -485,6 +511,11 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
       </div>
 
       <style jsx global>{`
+        /* Remove default browser range thumb to fix "Dual Head" issue */
+        .range-input-hidden-thumb::-webkit-slider-thumb { -webkit-appearance: none; opacity: 0; }
+        .range-input-hidden-thumb::-moz-range-thumb { opacity: 0; }
+        .range-input-hidden-thumb::-ms-thumb { opacity: 0; }
+
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
