@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef, use } from "react";
+import { useEffect, useState, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { SUBJECTS } from "@/constants/subjects";
 import { usePlayer } from "@/hooks/usePlayer";
@@ -7,7 +7,7 @@ import {
   CheckCircle2, Play, Download, ChevronLeft, 
   Zap, HelpCircle, X, Maximize, Loader2, Minimize, 
   Menu, ChevronDown, Clock, Rewind, FastForward,
-  Film, FileText, Sparkles
+  Sparkles, PlayCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -23,26 +23,29 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'modules' | 'resources'>('modules');
   
-  // Player
+  // Player State
   const [activeVideo, setActiveVideo] = useState<any>(null);
   const [videoSrc, setVideoSrc] = useState<string>("");
   const [buffering, setBuffering] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
-  const [showTips, setShowTips] = useState(false);
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   
-  // UX State
+  // Advanced Player UI State
   const [controlsVisible, setControlsVisible] = useState(true);
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [doubleTapAnimation, setDoubleTapAnimation] = useState<'left' | 'right' | null>(null);
+  const [showTips, setShowTips] = useState(false);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [doubleTapFeedback, setDoubleTapFeedback] = useState<'rewind' | 'forward' | null>(null);
+  const [progress, setProgress] = useState(0); // 0-100 for scrubber
 
-  // Progress
+  // Progress Data
   const [watched, setWatched] = useState<string[]>([]);
 
+  // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTapRef = useRef<number>(0);
   
   usePlayer(videoRef, (speed) => setPlaybackSpeed(speed));
   const speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
@@ -52,6 +55,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     if (!defaultSubject) return;
     setWatched(JSON.parse(localStorage.getItem(`watched_${id}`) || "[]"));
 
+    // Fetch Stats & Files
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/system-stats`, {
         headers: { "x-api-key": process.env.NEXT_PUBLIC_AUTH_TOKEN! }
     }).then(res => res.json()).then(stats => {
@@ -73,47 +77,55 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   }, [id, defaultSubject, router]);
 
   // --- CONTROLS VISIBILITY LOGIC ---
-  const handleUserActivity = () => {
+  const showControlsBriefly = useCallback(() => {
     setControlsVisible(true);
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     controlsTimeoutRef.current = setTimeout(() => {
       if (!videoRef.current?.paused) setControlsVisible(false);
-    }, 3000);
-  };
+    }, 3000); 
+  }, []);
+
+  useEffect(() => {
+    return () => { if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); };
+  }, []);
 
   // --- DOUBLE TAP LOGIC ---
-  const lastTapRef = useRef<number>(0);
-  const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleContainerClick = (e: React.MouseEvent | React.TouchEvent) => {
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 300;
     
     if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      if (!videoRef.current || !playerContainerRef.current) return;
+      let clientX;
+      if ('touches' in e) clientX = e.touches[0].clientX;
+      else clientX = (e as React.MouseEvent).clientX;
+
+      const rect = playerContainerRef.current.getBoundingClientRect();
+      const x = clientX - rect.left;
       const width = rect.width;
 
-      if (x < width * 0.35) {
-        seek(-10);
-        setDoubleTapAnimation('left');
-        setTimeout(() => setDoubleTapAnimation(null), 600);
-      } else if (x > width * 0.65) {
-        seek(10);
-        setDoubleTapAnimation('right');
-        setTimeout(() => setDoubleTapAnimation(null), 600);
+      if (x < width / 3) {
+        videoRef.current.currentTime -= 10;
+        setDoubleTapFeedback('rewind');
+        setTimeout(() => setDoubleTapFeedback(null), 600);
+        showControlsBriefly();
+      } else if (x > (width * 2) / 3) {
+        videoRef.current.currentTime += 10;
+        setDoubleTapFeedback('forward');
+        setTimeout(() => setDoubleTapFeedback(null), 600);
+        showControlsBriefly();
       } else {
-        toggleFullscreen();
+         if (videoRef.current.paused) videoRef.current.play();
+         else videoRef.current.pause();
+         showControlsBriefly();
       }
     } else {
-      handleUserActivity();
+       showControlsBriefly();
     }
     lastTapRef.current = now;
   };
 
-  const seek = (seconds: number) => {
-    if (videoRef.current) videoRef.current.currentTime += seconds;
-  };
-
-  // --- VIDEO LOGIC ---
+  // --- PLAYER LOGIC ---
   const playVideo = async (file: any) => {
     setBuffering(true);
     setActiveVideo(file);
@@ -126,6 +138,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
       });
       const { token } = await res.json();
       setVideoSrc(`/api/lore-world?token=${encodeURIComponent(token)}`);
+      showControlsBriefly();
     } catch (e) { setBuffering(false); }
   };
 
@@ -136,13 +149,16 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     const savedTime = localStorage.getItem(`timestamp_${activeVideo.id}`);
     if (savedTime) videoRef.current.currentTime = parseFloat(savedTime);
     videoRef.current.play();
-    handleUserActivity();
+    showControlsBriefly();
   };
 
   const onTimeUpdate = () => {
     if (!videoRef.current || !activeVideo) return;
     const { currentTime, duration } = videoRef.current;
     if (!duration) return;
+    
+    setProgress((currentTime / duration) * 100);
+
     if (Math.floor(currentTime) % 5 === 0) {
       localStorage.setItem(`timestamp_${activeVideo.id}`, currentTime.toString());
     }
@@ -153,16 +169,27 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     }
   };
 
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    if (!videoRef.current) return;
+    const time = (val / 100) * videoRef.current.duration;
+    videoRef.current.currentTime = time;
+    setProgress(val);
+    showControlsBriefly();
+  };
+
   const changeSpeed = (speed: number) => {
     setPlaybackSpeed(speed);
     if (videoRef.current) videoRef.current.playbackRate = speed;
     setShowSpeedMenu(false);
+    showControlsBriefly();
   };
 
   const toggleFullscreen = () => {
     if (!playerContainerRef.current) return;
     if (document.fullscreenElement) document.exitFullscreen();
     else playerContainerRef.current.requestFullscreen();
+    showControlsBriefly();
   };
 
   const handleDownload = async (e: React.MouseEvent, file: any) => {
@@ -185,582 +212,241 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   const progressPercent = videos.length > 0 ? Math.round((watchedCount / videos.length) * 100) : 0;
 
   return (
-    <div className="h-screen bg-black text-slate-100 flex flex-col font-sans selection:bg-[#6366f1]/30 overflow-hidden">
+    <div className="h-screen bg-[#050505] text-slate-200 flex flex-col font-sans selection:bg-magenta-500/30 overflow-hidden">
       
-      {/* NETFLIX-INSPIRED HEADER */}
-      <motion.header 
-        initial={{ y: -100, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="backdrop-blur-md bg-black/90 border-b border-white/5 flex flex-col shrink-0 z-50"
-      >
-        <div className="px-4 sm:px-6 lg:px-8 py-3 lg:py-4">
-          <div className="flex items-center justify-between gap-4">
-            
-            {/* Back + Logo */}
-            <div className="flex items-center gap-3">
-              <motion.button 
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => router.push("/")} 
-                className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition-colors bg-white/5 px-3 py-2 rounded-lg border border-white/10 hover:bg-white/10 shrink-0"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                <span className="hidden sm:inline">Back</span>
-              </motion.button>
-              
-              <div className="hidden sm:block">
-                <h1 className="text-xl lg:text-2xl font-black tracking-tight bg-gradient-to-r from-[#818cf8] to-[#c084fc] bg-clip-text text-transparent">
-                  GATE LORES
-                </h1>
-              </div>
+      {/* 1. HEADER (Progress Bar) */}
+      <div className="bg-zinc-950 border-b border-white/5 flex flex-col shrink-0 z-50 py-3 md:py-4 px-4 md:px-6 relative shadow-2xl">
+        <div className="flex items-center justify-between gap-3">
+          <button onClick={() => router.push("/")} className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition-colors bg-white/5 px-3 md:px-4 py-2 rounded-full border border-white/5 hover:bg-white/10 shrink-0">
+            <ChevronLeft className="w-4 h-4" /> <span className="hidden sm:inline">DEN</span>
+          </button>
+          
+          <div className="flex flex-col items-center gap-1.5 md:gap-2 flex-1 min-w-0">
+            <h1 className="text-sm md:text-xl font-black tracking-tight text-white uppercase truncate max-w-full">
+              {subjectData.name}
+            </h1>
+            <div className="w-full max-w-xs md:max-w-sm lg:w-96 h-1.5 md:h-2 bg-zinc-900 rounded-full overflow-hidden border border-white/10 relative">
+               <div 
+                 className="h-full bg-gradient-to-r from-blue-500 via-magenta-500 to-green-500 shadow-[0_0_10px_rgba(219,39,119,0.8)] transition-all duration-1000 ease-out"
+                 style={{ width: `${progressPercent}%` }}
+               />
             </div>
-            
-            {/* Subject Name + Progress */}
-            <div className="flex-1 max-w-md">
-              <h2 className="text-sm sm:text-base font-semibold text-white mb-1.5 truncate">
-                {subjectData.name}
-              </h2>
-              <div className="relative h-1 bg-neutral-800 rounded-full overflow-hidden">
-                <motion.div 
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progressPercent}%` }}
-                  transition={{ duration: 1, ease: "easeOut" }}
-                  className="h-full bg-gradient-to-r from-[#818cf8] to-[#c084fc] relative"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/30 to-white/0 animate-shimmer" />
-                </motion.div>
-              </div>
+            <span className="text-[10px] font-mono text-magenta-400/80 tracking-widest uppercase mt-0.5">
+               Deadline: {subjectData.endDate}
+            </span>
+          </div>
+          
+          <div className="flex items-center gap-2 md:gap-3 shrink-0">
+            <div className="text-right hidden sm:block">
+               <div className="text-xl md:text-2xl font-black text-white leading-none tracking-tight drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
+                 <span className="text-magenta-500">{watchedCount}</span> <span className="text-base md:text-lg text-slate-500">/</span> {videos.length}
+               </div>
+               <div className="text-[9px] md:text-[10px] font-bold text-slate-400 tracking-widest mt-1">LORES COMPLETED</div>
             </div>
-            
-            {/* Stats + Menu */}
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="hidden sm:flex items-baseline gap-1 text-sm">
-                <span className="font-bold text-white">{watchedCount}</span>
-                <span className="text-neutral-600">/</span>
-                <span className="text-neutral-400">{videos.length}</span>
-              </div>
-              
-              <motion.button 
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)} 
-                className="lg:hidden p-2 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 transition-colors"
-              >
-                <Menu className="w-5 h-5" />
-              </motion.button>
-            </div>
+            <button onClick={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)} className="md:hidden p-2 bg-white/5 rounded-full border border-white/5 hover:bg-white/10 transition-colors">
+              <Menu className="w-5 h-5" />
+            </button>
           </div>
         </div>
-      </motion.header>
+      </div>
 
       <div className="flex-1 flex overflow-hidden relative">
         
-        {/* NETFLIX-STYLE SIDEBAR */}
+        {/* 2. SIDEBAR */}
         <AnimatePresence>
-          {(isMobileSidebarOpen || typeof window !== 'undefined' && window.innerWidth >= 1024) && (
+          {(isMobileSidebarOpen || window.innerWidth >= 768) && (
             <>
               {isMobileSidebarOpen && (
-                <motion.div 
-                  initial={{ opacity: 0 }} 
-                  animate={{ opacity: 1 }} 
-                  exit={{ opacity: 0 }} 
-                  onClick={() => setIsMobileSidebarOpen(false)} 
-                  className="lg:hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-40" 
-                />
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMobileSidebarOpen(false)} className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40" />
               )}
               <motion.aside
-                initial={{ x: -400 }} 
-                animate={{ x: 0 }} 
-                exit={{ x: -400 }} 
-                transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                className="w-full sm:w-80 lg:w-96 bg-neutral-950/98 lg:bg-neutral-950/50 backdrop-blur-xl border-r border-white/5 flex flex-col z-50 lg:z-20 fixed lg:relative h-full"
+                initial={{ x: -320 }} animate={{ x: 0 }} exit={{ x: -320 }} transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                className="w-80 md:w-96 bg-zinc-950/95 md:bg-zinc-950/50 backdrop-blur-xl md:backdrop-blur-none border-r border-white/5 flex flex-col z-50 md:z-20 fixed md:relative h-full shadow-2xl md:shadow-none"
               >
-                <button 
-                  onClick={() => setIsMobileSidebarOpen(false)} 
-                  className="lg:hidden absolute top-4 right-4 p-2 bg-white/5 rounded-lg hover:bg-white/10 transition-colors z-10 border border-white/10"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <button onClick={() => setIsMobileSidebarOpen(false)} className="md:hidden absolute top-4 right-4 p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors"><X className="w-4 h-4" /></button>
                 
-                {/* Tabs */}
-                <div className="flex border-b border-white/5 pt-16 lg:pt-0">
-                  <button 
-                    onClick={() => setActiveTab('modules')} 
-                    className={`flex-1 py-3.5 text-xs font-semibold tracking-wide transition-all relative ${
-                      activeTab === 'modules' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'
-                    }`}
-                  >
-                    MODULES
-                    {activeTab === 'modules' && (
-                      <motion.div 
-                        layoutId="activeTab"
-                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#818cf8] to-[#c084fc]" 
-                      />
-                    )}
-                  </button>
-                  <button 
-                    onClick={() => setActiveTab('resources')} 
-                    className={`flex-1 py-3.5 text-xs font-semibold tracking-wide transition-all relative ${
-                      activeTab === 'resources' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'
-                    }`}
-                  >
-                    RESOURCES
-                    {activeTab === 'resources' && (
-                      <motion.div 
-                        layoutId="activeTab"
-                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#818cf8] to-[#c084fc]" 
-                      />
-                    )}
-                  </button>
+                <div className="flex border-b border-white/5 pt-12 md:pt-0">
+                  <button onClick={() => setActiveTab('modules')} className={`flex-1 py-3 md:py-4 text-xs font-bold tracking-widest transition-colors ${activeTab === 'modules' ? 'text-white bg-white/5 border-b-2 border-magenta-500 shadow-[inset_0_-2px_10px_rgba(219,39,119,0.1)]' : 'text-slate-600 hover:text-slate-400'}`}>MODULES</button>
+                  <button onClick={() => setActiveTab('resources')} className={`flex-1 py-3 md:py-4 text-xs font-bold tracking-widest transition-colors ${activeTab === 'resources' ? 'text-white bg-white/5 border-b-2 border-blue-500 shadow-[inset_0_-2px_10px_rgba(59,130,246,0.1)]' : 'text-slate-600 hover:text-slate-400'}`}>RESOURCES</button>
                 </div>
-                
-                {/* Content */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1.5">
-                  {loading ? (
-                    <div className="flex flex-col items-center justify-center p-10 gap-3">
-                      <Loader2 className="w-6 h-6 animate-spin text-[#818cf8]"/>
-                      <span className="text-xs text-neutral-500">Loading...</span>
-                    </div>
-                  ) : activeTab === 'modules' ? (
-                    <div className="space-y-1.5">
-                      {videos.length === 0 ? (
-                        <div className="text-center py-12 text-neutral-600">
-                          <Film className="w-10 h-10 mx-auto mb-2 opacity-20" />
-                          <p className="text-xs">No modules available</p>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                   {loading ? (
+                      <div className="flex justify-center p-10"><Loader2 className="animate-spin text-magenta-500"/></div>
+                   ) : activeTab === 'modules' ? (
+                      videos.map((f) => (
+                        <div key={f.id} onClick={() => playVideo(f)} className={`p-3 md:p-4 rounded-lg cursor-pointer group flex gap-3 md:gap-4 items-center transition-all ${activeVideo?.id === f.id ? 'bg-magenta-500/10 border border-magenta-500/20 shadow-[0_0_15px_-5px_rgba(219,39,119,0.3)]' : 'bg-black/20 hover:bg-white/5 border border-transparent active:bg-white/10'}`}>
+                          <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border flex items-center justify-center transition-all shrink-0 ${watched.includes(String(f.id)) ? 'bg-green-500 border-green-500 scale-110' : 'border-slate-700'}`}>
+                            {watched.includes(String(f.id)) && <CheckCircle2 className="w-3 md:w-3.5 h-3 md:h-3.5 text-black" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs md:text-sm truncate ${activeVideo?.id === f.id ? 'text-white font-bold' : 'text-slate-400 group-hover:text-slate-200'}`}>{f.name.replace(/\.[^/.]+$/, "")}</p>
+                            <p className="text-[9px] md:text-[10px] font-mono text-slate-600 mt-1">{(f.size / 1024 / 1024).toFixed(1)} MB</p>
+                          </div>
+                          {activeVideo?.id === f.id && <Play className="w-3.5 md:w-4 h-3.5 md:h-4 text-magenta-500 fill-current animate-pulse shrink-0" />}
                         </div>
-                      ) : (
-                        videos.map((f, index) => {
-                          const isWatched = watched.includes(String(f.id));
-                          const isActive = activeVideo?.id === f.id;
-                          
-                          return (
-                            <motion.div
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: index * 0.03 }}
-                              key={f.id} 
-                              onClick={() => playVideo(f)} 
-                              className={`group relative overflow-hidden rounded-md cursor-pointer transition-all duration-200 ${
-                                isActive 
-                                  ? 'bg-neutral-800 ring-1 ring-[#818cf8]/50' 
-                                  : 'bg-neutral-900/50 hover:bg-neutral-800/70'
-                              }`}
-                            >
-                              <div className="p-3 flex gap-3 items-center">
-                                {/* Status */}
-                                <div className="shrink-0">
-                                  {isWatched ? (
-                                    <div className="w-8 h-8 rounded bg-green-500/20 flex items-center justify-center">
-                                      <CheckCircle2 className="w-4.5 h-4.5 text-green-400" />
-                                    </div>
-                                  ) : isActive ? (
-                                    <div className="w-8 h-8 rounded bg-[#818cf8]/20 flex items-center justify-center">
-                                      <div className="w-4.5 h-4.5 rounded bg-[#818cf8] animate-pulse" />
-                                    </div>
-                                  ) : (
-                                    <div className="w-8 h-8 rounded bg-neutral-800 flex items-center justify-center group-hover:bg-neutral-700 transition-colors">
-                                      <Play className="w-4 h-4 text-neutral-400 group-hover:text-white transition-colors" />
-                                    </div>
-                                  )}
-                                </div>
-                                
-                                {/* Info */}
-                                <div className="flex-1 min-w-0">
-                                  <p className={`text-xs font-medium mb-0.5 truncate ${
-                                    isActive ? 'text-white' : 'text-neutral-300 group-hover:text-white'
-                                  }`}>
-                                    {f.name.replace(/\.[^/.]+$/, "")}
-                                  </p>
-                                  <div className="flex items-center gap-1.5 text-[10px] text-neutral-600">
-                                    <span>{(f.size / 1024 / 1024).toFixed(1)} MB</span>
-                                    {isWatched && (
-                                      <>
-                                        <span>•</span>
-                                        <span className="text-green-400">Watched</span>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </motion.div>
-                          );
-                        })
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {resources.length === 0 ? (
-                        <div className="text-center py-12 text-neutral-600">
-                          <FileText className="w-10 h-10 mx-auto mb-2 opacity-20" />
-                          <p className="text-xs">No resources available</p>
+                      ))
+                   ) : (
+                      resources.map((f) => (
+                        <div key={f.id} onClick={(e) => handleDownload(e, f)} className="flex gap-3 md:gap-4 items-center p-3 md:p-4 rounded-lg bg-black/20 hover:bg-white/5 border border-transparent hover:border-blue-500/30 cursor-pointer group transition-all active:bg-white/10">
+                          <div className="p-2 bg-blue-500/10 rounded text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-colors shadow-[0_0_10px_rgba(59,130,246,0.1)] shrink-0"><Download className="w-3.5 md:w-4 h-3.5 md:h-4" /></div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs md:text-sm text-slate-300 group-hover:text-white font-medium truncate">{f.name}</p>
+                            <p className="text-[9px] md:text-[10px] text-slate-600 mt-1">SECURE DOWNLOAD</p>
+                          </div>
                         </div>
-                      ) : (
-                        resources.map((f, index) => (
-                          <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.03 }}
-                            key={f.id} 
-                            onClick={(e) => handleDownload(e, f)} 
-                            className="group relative overflow-hidden flex gap-3 items-center p-3 rounded-md bg-neutral-900/50 hover:bg-neutral-800/70 cursor-pointer transition-all"
-                          >
-                            <div className="w-8 h-8 rounded bg-blue-500/20 flex items-center justify-center shrink-0">
-                              <Download className="w-4 h-4 text-blue-400" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-neutral-300 group-hover:text-white mb-0.5 truncate">
-                                {f.name}
-                              </p>
-                              <p className="text-[10px] text-neutral-600">Download</p>
-                            </div>
-                            <ChevronLeft className="w-4 h-4 text-neutral-600 group-hover:text-neutral-400 rotate-180 shrink-0" />
-                          </motion.div>
-                        ))
-                      )}
-                    </div>
-                  )}
+                      ))
+                   )}
                 </div>
               </motion.aside>
             </>
           )}
         </AnimatePresence>
 
-        {/* MAIN PLAYER */}
+        {/* 3. MAIN PLAYER */}
         <main className="flex-1 bg-black relative flex flex-col items-center justify-center">
           {activeVideo ? (
             <div 
               ref={playerContainerRef} 
-              className="relative w-full h-full flex items-center justify-center bg-black group"
-              onMouseMove={handleUserActivity}
-              onTouchStart={handleUserActivity}
-              onClick={handleContainerClick}
+              className="relative w-full h-full flex items-center justify-center bg-black group overflow-hidden"
+              onClick={handleContainerClick} 
+              onMouseMove={showControlsBriefly}
+              onTouchStart={showControlsBriefly}
             >
-              
-              {/* Double Tap Animations */}
-              <AnimatePresence>
-                {doubleTapAnimation === 'left' && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.5 }} 
-                    animate={{ opacity: [0, 1, 0], scale: [0.5, 1.2, 1] }} 
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.6 }}
-                    className="absolute left-[15%] z-50 pointer-events-none"
-                  >
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="flex gap-1">
-                        <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 0.6, times: [0, 0.5, 1] }}>
-                          <Rewind className="w-8 h-8 text-white drop-shadow-2xl" />
-                        </motion.div>
-                        <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 0.6, times: [0, 0.5, 1], delay: 0.1 }}>
-                          <Rewind className="w-8 h-8 text-white drop-shadow-2xl" />
-                        </motion.div>
-                      </div>
-                      <span className="text-sm font-bold text-white drop-shadow-2xl">10 seconds</span>
-                    </div>
-                  </motion.div>
-                )}
-                {doubleTapAnimation === 'right' && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.5 }} 
-                    animate={{ opacity: [0, 1, 0], scale: [0.5, 1.2, 1] }} 
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.6 }}
-                    className="absolute right-[15%] z-50 pointer-events-none"
-                  >
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="flex gap-1">
-                        <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 0.6, times: [0, 0.5, 1] }}>
-                          <FastForward className="w-8 h-8 text-white drop-shadow-2xl" />
-                        </motion.div>
-                        <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 0.6, times: [0, 0.5, 1], delay: 0.1 }}>
-                          <FastForward className="w-8 h-8 text-white drop-shadow-2xl" />
-                        </motion.div>
-                      </div>
-                      <span className="text-sm font-bold text-white drop-shadow-2xl">10 seconds</span>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Buffering */}
               <AnimatePresence>
                 {buffering && (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
+                    <div className="flex flex-col items-center">
+                      <Loader2 className="w-10 md:w-12 h-10 md:h-12 text-magenta-500 animate-spin mb-2" />
+                      <span className="text-xs font-mono text-magenta-300 tracking-[0.2em] animate-pulse">STREAMING...</span>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Double Tap Visual Feedback */}
+                {doubleTapFeedback && (
                   <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="absolute inset-0 z-30 flex items-center justify-center bg-black/50"
+                    initial={{ opacity: 0, scale: 0.5 }} 
+                    animate={{ opacity: 1, scale: 1 }} 
+                    exit={{ opacity: 0, scale: 1.5 }}
+                    className={`absolute z-30 flex flex-col items-center justify-center p-6 bg-white/10 rounded-full backdrop-blur-md ${doubleTapFeedback === 'rewind' ? 'left-1/4' : 'right-1/4'}`}
                   >
-                    <Loader2 className="w-12 h-12 text-[#818cf8] animate-spin" />
+                     {doubleTapFeedback === 'rewind' ? <Rewind className="w-8 h-8 text-white" /> : <FastForward className="w-8 h-8 text-white" />}
+                     <span className="text-xs font-bold text-white mt-1">10s</span>
                   </motion.div>
                 )}
               </AnimatePresence>
-
-              {/* Controls Overlay - Fades with video controls */}
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: controlsVisible ? 1 : 0 }}
-                transition={{ duration: 0.3 }}
-                className="absolute top-4 sm:top-6 right-4 sm:right-6 z-40 flex items-center gap-2"
-              >
-                {/* Help */}
-                <motion.button 
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); setShowTips(!showTips); }} 
-                  className="p-2 bg-black/40 backdrop-blur-md rounded-lg text-neutral-400 hover:text-white hover:bg-black/60 transition-all border border-white/10"
-                >
-                  <HelpCircle className="w-4.5 h-4.5" />
-                </motion.button>
+              
+              {/* CUSTOM OVERLAY CONTROLS */}
+              <div className={`absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-20 pb-4 px-4 sm:px-6 transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={(e) => e.stopPropagation()}>
                 
-                {/* Speed */}
-                <div className="relative">
-                  <motion.button 
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => { e.stopPropagation(); setShowSpeedMenu(!showSpeedMenu); }} 
-                    className="px-3 py-2 bg-black/40 backdrop-blur-md rounded-lg text-xs font-semibold text-white border border-white/10 flex items-center gap-1.5 hover:bg-black/60 transition-all"
-                  >
-                    <Zap className="w-3.5 h-3.5 text-yellow-400" /> 
-                    <span>{playbackSpeed}x</span>
-                    <ChevronDown className={`w-3 h-3 transition-transform ${showSpeedMenu ? 'rotate-180' : ''}`} />
-                  </motion.button>
-                  
-                  <AnimatePresence>
-                    {showSpeedMenu && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: -8, scale: 0.95 }} 
-                        animate={{ opacity: 1, y: 0, scale: 1 }} 
-                        exit={{ opacity: 0, y: -8, scale: 0.95 }} 
-                        className="absolute right-0 top-full mt-2 bg-neutral-900/98 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl overflow-hidden min-w-[100px]"
-                      >
-                        {speedOptions.map((speed) => (
-                          <button 
-                            key={speed} 
-                            onClick={(e) => { e.stopPropagation(); changeSpeed(speed); }} 
-                            className={`w-full px-4 py-2.5 text-xs font-medium text-left transition-colors ${
-                              playbackSpeed === speed 
-                                ? 'bg-[#818cf8]/20 text-[#818cf8]' 
-                                : 'text-neutral-300 hover:bg-white/5 hover:text-white'
-                            }`}
-                          >
-                            {speed}x {playbackSpeed === speed && '✓'}
-                          </button>
-                        ))}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                {/* SCRUBBER - Visible with your theme colors */}
+                <div className="relative group/scrubber h-2 hover:h-3 transition-all cursor-pointer mb-6 flex items-center">
+                    {/* Background Track */}
+                    <div className="absolute inset-0 bg-white/20 rounded-full" />
+                    
+                    {/* Colored Fill (Blue -> Magenta) */}
+                    <div 
+                        className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-500 to-magenta-500 rounded-full shadow-[0_0_10px_rgba(219,39,119,0.5)]" 
+                        style={{ width: `${progress}%` }} 
+                    />
+                    
+                    {/* Thumb */}
+                    <div 
+                        className="absolute h-4 w-4 bg-white rounded-full shadow-lg scale-0 group-hover/scrubber:scale-100 transition-transform z-10" 
+                        style={{ left: `${progress}%`, transform: 'translateX(-50%)' }} 
+                    />
+                    
+                    {/* Invisible Input for dragging */}
+                    <input 
+                        type="range" min="0" max="100" step="0.1" 
+                        value={progress} onChange={handleSeek} 
+                        className="absolute inset-0 w-full opacity-0 cursor-pointer z-20" 
+                    />
                 </div>
-                
-                {/* Fullscreen */}
-                <motion.button 
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} 
-                  className="p-2 bg-black/40 backdrop-blur-md rounded-lg text-neutral-400 hover:text-white hover:bg-black/60 border border-white/10 transition-all"
-                >
-                  {isFullscreen ? <Minimize className="w-4.5 h-4.5"/> : <Maximize className="w-4.5 h-4.5"/>}
-                </motion.button>
-              </motion.div>
+
+                <div className="flex items-center justify-between">
+                    {/* Left Controls */}
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => { if(videoRef.current?.paused) videoRef.current.play(); else videoRef.current?.pause(); }} className="hover:text-magenta-400 text-white transition-colors">
+                            {videoRef.current?.paused ? <Play className="w-6 h-6 fill-current"/> : <div className="w-6 h-6 flex gap-1 justify-center"><div className="w-2 bg-current rounded"/><div className="w-2 bg-current rounded"/></div>}
+                        </button>
+                        <button onClick={() => setShowTips(!showTips)} className="text-slate-300 hover:text-white"><HelpCircle className="w-5 h-5"/></button>
+                    </div>
+
+                    {/* Right Controls */}
+                    <div className="flex items-center gap-4">
+                        <div className="relative">
+                            <button onClick={() => setShowSpeedMenu(!showSpeedMenu)} className="flex items-center gap-1 px-2 py-1 bg-white/10 rounded text-xs font-bold text-white border border-white/5 hover:bg-zinc-800">
+                                <Zap className="w-3 h-3 text-yellow-400 fill-current" /> {playbackSpeed}x
+                            </button>
+                            <AnimatePresence>
+                                {showSpeedMenu && (
+                                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute bottom-full right-0 mb-2 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden min-w-[80px] pointer-events-auto">
+                                        {speedOptions.map((speed) => (<button key={speed} onClick={() => changeSpeed(speed)} className={`block w-full text-left px-4 py-2 text-xs font-mono transition-colors ${playbackSpeed === speed ? 'bg-magenta-500/20 text-magenta-300 font-bold' : 'text-slate-300 hover:bg-white/5'}`}>{speed}x</button>))}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+                        <button onClick={toggleFullscreen} className="p-2 md:p-2.5 bg-zinc-900/60 backdrop-blur rounded-full text-slate-300 hover:text-white hover:bg-white/10 border border-white/5 shadow-lg active:scale-95 transition-all">
+                            {isFullscreen ? (<Minimize className="w-4 md:w-5 h-4 md:h-5"/>) : (<Maximize className="w-4 md:w-5 h-4 md:h-5"/>)}
+                        </button>
+                    </div>
+                </div>
+              </div>
 
               {/* Tips Modal */}
-              <AnimatePresence>
-                {showTips && (
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.9, y: -10 }} 
-                    animate={{ opacity: 1, scale: 1, y: 0 }} 
-                    exit={{ opacity: 0, scale: 0.9, y: -10 }} 
-                    className="absolute top-20 sm:top-24 right-4 sm:right-6 z-50 bg-neutral-900/98 backdrop-blur-xl border border-white/10 p-5 rounded-xl shadow-2xl w-72"
-                  >
-                    <div className="flex justify-between items-center mb-4 pb-3 border-b border-white/10">
-                      <span className="text-xs font-bold text-white tracking-wide">SHORTCUTS</span>
-                      <button onClick={(e) => { e.stopPropagation(); setShowTips(false); }}>
-                        <X className="w-4 h-4 text-neutral-500 hover:text-white transition-colors"/>
-                      </button>
-                    </div>
-                    <div className="space-y-2.5 text-xs">
-                      {[
-                        { label: 'Play / Pause', key: 'SPACE' },
-                        { label: 'Back 10s (or double tap left)', key: '←' },
-                        { label: 'Forward 10s (or double tap right)', key: '→' },
-                        { label: 'Speed Down', key: '[' },
-                        { label: 'Speed Up', key: ']' },
-                        { label: 'Fullscreen', key: 'F' },
-                      ].map((s, i) => (
-                        <div key={i} className="flex justify-between items-center py-2 px-2.5 rounded bg-white/5">
-                          <span className="text-neutral-300 text-[11px]">{s.label}</span>
-                          <kbd className="bg-neutral-800 px-2.5 py-1 rounded text-white text-[10px] font-mono border border-white/10">
-                            {s.key}
-                          </kbd>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              <AnimatePresence>{showTips && (<motion.div initial={{ opacity: 0, scale: 0.9, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="absolute top-16 md:top-20 right-3 md:right-6 z-50 bg-zinc-950/95 backdrop-blur-xl border border-white/10 p-4 md:p-5 rounded-2xl shadow-2xl w-64 md:w-72 pointer-events-auto"><div className="flex justify-between items-center mb-3 md:mb-4 pb-2 border-b border-white/10"><span className="text-xs font-black text-white tracking-widest">SHORTCUTS</span><button onClick={() => setShowTips(false)}><X className="w-4 h-4 text-slate-500 hover:text-white transition-colors"/></button></div><div className="space-y-2.5 md:space-y-3 text-xs font-mono text-slate-400"><div className="flex justify-between items-center"><span>PLAY/PAUSE</span> <kbd className="bg-white/10 px-2 py-0.5 rounded text-white text-[10px]">SPACE</kbd></div><div className="flex justify-between items-center"><span>SEEK ±10s</span> <div className="flex gap-1"><kbd className="bg-white/10 px-1 py-0.5 rounded text-white text-[10px]">←</kbd><kbd className="bg-white/10 px-1 py-0.5 rounded text-white text-[10px]">→</kbd></div></div><div className="flex justify-between items-center"><span>MOBILE SEEK</span> <span className="text-white text-[10px]">DOUBLE TAP SIDES</span></div></div></motion.div>)}</AnimatePresence>
 
-              <video 
-                ref={videoRef} 
-                src={videoSrc} 
-                className="w-full h-full max-h-screen object-contain focus:outline-none" 
-                controls 
-                autoPlay 
-                onLoadedData={onVideoLoaded} 
-                onWaiting={() => setBuffering(true)} 
-                onPlaying={() => setBuffering(false)} 
-                onTimeUpdate={onTimeUpdate} 
-                controlsList="nodownload" 
-                playsInline 
-              />
+              <video ref={videoRef} src={videoSrc} className="w-full h-full max-h-screen object-contain focus:outline-none drop-shadow-2xl" controls={false} autoPlay onLoadedData={onVideoLoaded} onWaiting={() => setBuffering(true)} onPlaying={() => setBuffering(false)} onTimeUpdate={onTimeUpdate} controlsList="nodownload" playsInline />
             </div>
           ) : (
-            // INSPIRING IDLE STATE
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex flex-col items-center justify-center h-full px-6 text-center relative overflow-hidden max-w-2xl"
-            >
-              {/* Ambient Glow */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <motion.div 
-                  animate={{ 
-                    scale: [1, 1.2, 1],
-                    opacity: [0.3, 0.5, 0.3]
-                  }}
-                  transition={{ 
-                    duration: 4,
-                    repeat: Infinity,
-                    ease: "easeInOut"
-                  }}
-                  className="w-96 h-96 bg-gradient-to-r from-[#818cf8]/20 to-[#c084fc]/20 rounded-full blur-[100px]"
-                />
+            // --- IDLE STATE: "MODERN AESTHETIC" ---
+            <div className="flex flex-col items-center justify-center h-full px-6 text-center animate-fade-in w-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-900/50 via-black to-black">
+              
+              {/* Background Glow */}
+              <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-500/10 rounded-full blur-[120px] animate-pulse"></div>
+                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-magenta-500/10 rounded-full blur-[80px]"></div>
+              </div>
+
+              {/* The "Breathing Void" Animation */}
+              <div className="relative mb-12">
+                 <motion.div 
+                   animate={{ scale: [1, 1.1, 1], opacity: [0.5, 0.8, 0.5] }} 
+                   transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                   className="w-32 h-32 md:w-40 md:h-40 rounded-full bg-gradient-to-tr from-blue-600 to-magenta-600 blur-2xl opacity-50"
+                 />
+                 <div className="absolute inset-0 flex items-center justify-center">
+                    <PlayCircle className="w-16 h-16 md:w-20 md:h-20 text-white/10" />
+                 </div>
               </div>
               
-              {/* Content */}
-              <div className="relative z-10 space-y-8">
+              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+                <h2 className="text-3xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40 tracking-tight mb-6">
+                  {subjectData.name}
+                </h2>
                 
-                {/* Animated Icon */}
-                <motion.div 
-                  animate={{ 
-                    y: [0, -10, 0],
-                    rotate: [0, 2, -2, 0]
-                  }}
-                  transition={{ 
-                    duration: 5,
-                    repeat: Infinity,
-                    ease: "easeInOut"
-                  }}
-                  className="relative w-24 h-24 sm:w-32 sm:h-32 mx-auto"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#818cf8] to-[#c084fc] rounded-2xl shadow-2xl shadow-[#818cf8]/30 flex items-center justify-center">
-                    <Sparkles className="w-12 h-12 sm:w-16 sm:h-16 text-white" />
-                  </div>
-                  <motion.div 
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-                    className="absolute -inset-2 border-2 border-dashed border-[#818cf8]/30 rounded-2xl"
-                  />
-                </motion.div>
+                <p className="text-base md:text-xl text-slate-300 font-light leading-relaxed max-w-2xl mx-auto italic">
+                  &quot;If you don&apos;t put <span className="text-white font-medium">everything you have</span> into achieving your dreams, you will end up <span className="text-white border-b border-magenta-500/50">regretting it</span> in life.&quot;
+                </p>
 
-                {/* Quote */}
-                <div className="space-y-4">
-                  <motion.p 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="text-lg sm:text-xl font-light text-neutral-400 leading-relaxed italic"
-                  >
-                    "If you don't sacrifice for what you want,
-                  </motion.p>
-                  <motion.p 
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.4 }}
-                    className="text-xl sm:text-2xl font-semibold text-white leading-relaxed"
-                  >
-                    what you want becomes the sacrifice."
-                  </motion.p>
+                <div className="mt-10 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-white/5 bg-white/5 backdrop-blur-sm">
+                   <Clock className="w-3 h-3 text-magenta-400" />
+                   <span className="text-xs font-mono text-slate-400">SESSION DEADLINE: <span className="text-white">{subjectData.endDate}</span></span>
                 </div>
-
-                {/* Stats Grid */}
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.6 }}
-                  className="grid grid-cols-2 gap-4 max-w-md mx-auto"
-                >
-                  <div className="bg-neutral-900/50 border border-white/5 rounded-lg p-4 backdrop-blur-sm">
-                    <div className="text-3xl font-bold text-white mb-1">{progressPercent}%</div>
-                    <div className="text-xs text-neutral-500 uppercase tracking-wide">Complete</div>
-                  </div>
-                  <div className="bg-neutral-900/50 border border-white/5 rounded-lg p-4 backdrop-blur-sm">
-                    <div className="text-3xl font-bold text-white mb-1">{watchedCount}/{videos.length}</div>
-                    <div className="text-xs text-neutral-500 uppercase tracking-wide">Modules</div>
-                  </div>
-                </motion.div>
-
-                {/* Deadline Info */}
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.8 }}
-                  className="space-y-3"
-                >
-                  <div className="flex items-center justify-center gap-2 text-sm text-neutral-400">
-                    <Clock className="w-4 h-4 text-[#818cf8]" />
-                    <span>Deadline: <span className="font-semibold text-white">{subjectData.endDate}</span></span>
-                  </div>
-                  
-                  <p className="text-[10px] text-neutral-600 leading-relaxed max-w-md">
-                    Deadlines exist due to the significant costs of hosting and maintaining this platform. 
-                    Your commitment helps us continue providing quality educational content.
-                  </p>
-                </motion.div>
-
-                {/* CTA for Mobile */}
-                <motion.button
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 1 }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setIsMobileSidebarOpen(true)}
-                  className="lg:hidden mx-auto flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#818cf8] to-[#c084fc] text-white font-semibold rounded-lg shadow-lg shadow-[#818cf8]/30 transition-all"
-                >
-                  <Play className="w-4 h-4" />
-                  <span>Start Learning</span>
-                </motion.button>
-              </div>
-            </motion.div>
+              </motion.div>
+            </div>
           )}
         </main>
       </div>
 
       <style jsx global>{`
-        @keyframes shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
-        }
-        .animate-shimmer {
-          animation: shimmer 2s infinite;
-        }
-        .custom-scrollbar {
-          scrollbar-width: thin;
-          scrollbar-color: rgba(115, 115, 115, 0.3) transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(115, 115, 115, 0.3);
-          border-radius: 3px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(115, 115, 115, 0.5);
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+        @media (hover: none) and (pointer: coarse) { .group .opacity-0 { opacity: 1 !important; } }
       `}</style>
     </div>
   );
