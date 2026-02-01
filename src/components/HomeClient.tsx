@@ -116,7 +116,7 @@ export default function HomeClient() {
             GATE LORES
           </h1>
           <p className="max-w-2xl mx-auto text-slate-400 text-base lg:text-xl leading-relaxed font-light">
-            The <span className="text-white font-semibold">Study Den</span> for free preparation.
+            The <span className="text-white font-semibold">Study Den</span> for top notch preparation.
             <br className="hidden md:block" />
             <span className="text-xs lg:text-sm font-mono text-slate-600 mt-4 block tracking-widest uppercase">
               // For the students by the students. Please keep it private, and among trustworthy fellas...
@@ -201,7 +201,7 @@ export default function HomeClient() {
                             href={`/subject/${sub.id}`}
                             className="flex items-center justify-between w-full text-xs font-bold text-white group-hover:text-magenta-300 transition-colors"
                           >
-                            <span>ACCESS TERMINAL</span>
+                            <span>ACCESS MODULES</span>
                             <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                           </Link>
                         ) : (

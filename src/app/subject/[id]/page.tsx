@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { 
   Menu, X, ChevronLeft, CheckCircle2, 
   Play, Download, FileText, Smartphone,
-  Timer, ShieldCheck, Terminal
+  ShieldCheck, Terminal
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import VideoManager from "@/components/video/VideoManager";
@@ -140,25 +140,59 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   return (
     <div className="h-screen bg-black text-slate-200 flex flex-col font-sans overflow-hidden">
         {/* HEADER */}
-        <header className="h-16 bg-zinc-950 border-b border-white/5 flex items-center px-4 shrink-0 z-50 justify-between">
-            <div className="flex items-center gap-3">
-                <button onClick={() => router.push("/")} className="p-2 bg-white/5 rounded-full hover:bg-white/10 transition-colors">
-                    <ChevronLeft className="w-5 h-5 text-slate-300" />
-                </button>
+        <header className="h-20 bg-zinc-950 border-b border-white/5 flex items-center px-6 shrink-0 z-50 justify-between gap-4">
+            
+            {/* LEFT: Navigation Controls */}
+            <div className="flex items-center gap-4">
                 <button 
                     onClick={() => {
                         if (window.innerWidth >= 768) setIsSidebarOpen(!isSidebarOpen);
                         else setIsMobileSidebarOpen(true);
                     }}
-                    className="p-2 hover:bg-white/5 rounded-full transition-colors"
+                    className="p-2 bg-white/5 hover:bg-white/10 rounded-full transition-colors border border-white/5"
+                    title="Toggle Sidebar"
                 >
                     <Menu className="w-5 h-5 text-indigo-400" />
                 </button>
+                
+                {/* Visual Divider */}
+                <div className="h-8 w-px bg-white/10 hidden md:block"></div>
+                
+                <button onClick={() => router.push("/")} className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition-colors group">
+                    <div className="p-1.5 rounded-full group-hover:bg-white/10 transition-colors">
+                        <ChevronLeft className="w-5 h-5" />
+                    </div>
+                    <span className="hidden md:inline tracking-widest">DEN</span>
+                </button>
             </div>
 
-            <div className="text-right hidden md:block">
-                <div className="text-xs font-mono text-slate-500 uppercase tracking-widest">Progress</div>
-                <div className="text-sm font-bold text-white"><span className="text-indigo-400">{watchedCount}</span> / {videos.length}</div>
+            {/* CENTER: Title & Progress Bar */}
+            <div className="flex-1 max-w-xl mx-auto flex flex-col items-center justify-center">
+                <h1 className="text-sm md:text-base font-black text-white uppercase tracking-tight truncate w-full text-center">
+                    {subjectData ? subjectData.name : "..."}
+                </h1>
+                
+                {/* THE RESTORED PROGRESS BAR */}
+                <div className="w-full h-1.5 bg-zinc-800 rounded-full mt-2 overflow-hidden relative border border-white/5">
+                    <div 
+                        className="h-full bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-500 shadow-[0_0_15px_rgba(99,102,241,0.6)] transition-all duration-700 ease-out" 
+                        style={{ width: `${progressPercent}%` }} 
+                    />
+                </div>
+            </div>
+
+            {/* RIGHT: Big Stats */}
+            <div className="text-right hidden md:block pl-6">
+                <div className="flex items-baseline justify-end gap-2">
+                    <span className="text-3xl font-black text-white tracking-tighter shadow-indigo-500/50 drop-shadow-lg">
+                        {watchedCount}
+                    </span>
+                    <span className="text-lg text-slate-600 font-medium">/</span>
+                    <span className="text-lg text-slate-500 font-medium">{videos.length}</span>
+                </div>
+                <div className="text-[10px] font-mono text-indigo-400 uppercase tracking-widest opacity-80">
+                    Modules Complete
+                </div>
             </div>
         </header>
 
@@ -198,7 +232,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                         onVideoEnded={markWatched}
                     />
                 ) : (
-                    // --- IDLE UI START ---
+                    // --- IDLE UI ---
                     <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-900/50 via-black to-black">
                         {/* Background Decor */}
                         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-50 contrast-150 pointer-events-none"></div>
@@ -246,12 +280,12 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                                 
                                 <div className="hidden md:flex items-center gap-2 text-xs font-mono text-slate-600">
                                     <ShieldCheck className="w-4 h-4 text-green-500" />
-                                    <span>CONNECTION SECURE // SELECT MODULE TO BEGIN</span>
+                                    <span> CONSISTENCY IS KEY</span>
+                                    <span>Select Module to Start</span>
                                 </div>
                             </div>
                         </motion.div>
                     </div>
-                    // --- IDLE UI END ---
                 )}
             </main>
         </div>
