@@ -31,8 +31,11 @@ export const adminApi = {
     fetchVM(`/admin/manage?topic_id=${topicId}&action=${action}${folderName ? `&folder_name=${folderName}` : ''}`, "POST"),
 
   broadcast: (msg: string) => fetchVM("/admin/broadcast", "POST", { message: msg }),
-  deleteBroadcast: () => fetchVM("/admin/broadcast", "DELETE"),
+  // deleteBroadcast: () => fetchVM("/admin/broadcast", "DELETE"),
   
   getInbox: () => fetchVM("/admin/inbox"),
   clearInbox: () => fetchVM("/admin/inbox", "DELETE"),
+  getBroadcasts: () => fetchVM("/api/broadcast"), // Public endpoint
+  addBroadcast: (msg: string) => fetchVM("/admin/broadcast", "POST", { content: msg }),
+  deleteBroadcast: (id: string) => fetchVM(`/admin/broadcast/${id}`, "DELETE"),
 };

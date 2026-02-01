@@ -4,23 +4,21 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { SUBJECTS } from "@/constants/subjects";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, Lock, Unlock, MessageSquare, X, Send, CheckCircle2 } from "lucide-react";
+import { Bell, Lock, Unlock, MessageSquare, X, Send, Megaphone, Terminal, ChevronRight } from "lucide-react";
 
 export default function HomeClient() {
-  const [broadcast, setBroadcast] = useState("");
+  const [announcements, setAnnouncements] = useState<any[]>([]);
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [msgForm, setMsgForm] = useState({ name: "", email: "", message: "" });
   const [sending, setSending] = useState(false);
 
-  // Fetch Announcement on Load from Azure Backend
+  // Fetch Announcements
   useEffect(() => {
-    // Note: If you want to hide the Azure IP completely, you should proxy this too later.
-    // For now, we fetch directly to get the system working.
     if (process.env.NEXT_PUBLIC_API_URL) {
       fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/broadcast`)
         .then(res => res.json())
-        .then(data => setBroadcast(data.message))
-        .catch(err => console.error("Ticker Offline")); // Silent fail is better for UX
+        .then(data => { if(Array.isArray(data)) setAnnouncements(data); })
+        .catch(err => console.error("API Offline"));
     }
   }, []);
 
@@ -28,165 +26,251 @@ export default function HomeClient() {
     e.preventDefault();
     setSending(true);
     try {
-      // Sending directly to Azure Backend
       await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/contact`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(msgForm)
       });
-      alert("Message received. We'll hear your thoughts.");
+      alert("Transmission successful.");
       setIsContactOpen(false);
       setMsgForm({ name: "", email: "", message: "" });
-    } catch (error) {
-      alert("Transmission failed.");
-    } finally {
-      setSending(false);
-    }
+    } catch (error) { alert("Transmission failed."); } 
+    finally { setSending(false); }
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-magenta-500/30">
+    <div className="min-h-screen bg-[#050505] text-slate-200 font-sans selection:bg-magenta-500/30 overflow-x-hidden">
       
-      {/* 1. Header & Hero */}
-      <header className="relative pt-20 pb-16 px-6 text-center overflow-hidden">
-        {/* Background Ambient Glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-magenta-900/20 blur-[120px] -z-10 rounded-full pointer-events-none" />
+      {/* 1. HERO SECTION */}
+      <header className="relative pt-24 pb-12 lg:pt-32 lg:pb-20 px-4 text-center">
+        {/* Ambient Background Glow */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[300px] lg:w-[600px] h-[200px] lg:h-[300px] bg-magenta-900/20 blur-[80px] lg:blur-[120px] -z-10 rounded-full pointer-events-none" />
         
-        <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-blue-400 via-magenta-500 to-purple-600 mb-6">
-          GATE LORES
-        </h1>
-        <p className="max-w-2xl mx-auto text-slate-400 text-lg md:text-xl leading-relaxed mb-8">
-          The <span className="text-white font-semibold">Study Den</span> for elite preparation.
-          <br />
-          <span className="text-sm font-mono text-slate-600 mt-2 block">
-            Rolling releases to optimize costs. All modules guaranteed by <span className="text-magenta-500">Oct 31</span>.
-          </span>
-        </p>
-
-        {/* Live Ticker (Only shows if broadcast exists) */}
-        {broadcast && (
-          <div className="inline-flex items-center gap-3 bg-zinc-900/80 border border-zinc-800 px-6 py-2 rounded-full backdrop-blur-md animate-fade-in-up">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          transition={{ duration: 0.8 }}
+        >
+          <h1 className="text-5xl lg:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-blue-400 via-magenta-500 to-purple-600 mb-6 drop-shadow-2xl">
+            GATE LORES
+          </h1>
+          <p className="max-w-2xl mx-auto text-slate-400 text-base lg:text-xl leading-relaxed font-light">
+            The <span className="text-white font-semibold">Study Den</span> for elite preparation.
+            <br className="hidden md:block" />
+            <span className="text-xs lg:text-sm font-mono text-slate-600 mt-4 block tracking-widest uppercase">
+              // Access Restricted // Authorized Personnel Only
             </span>
-            <span className="text-sm font-mono text-red-200 tracking-wide uppercase">{broadcast}</span>
-          </div>
-        )}
+          </p>
+        </motion.div>
       </header>
 
-      {/* 2. Subject Grid */}
-      <main className="max-w-7xl mx-auto px-6 pb-32">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {SUBJECTS.map((sub, idx) => (
-            <div key={sub.id} className="relative group">
-              {/* Card */}
-              <div className={`
-                h-full p-8 rounded-3xl border transition-all duration-300 flex flex-col justify-between
-                ${sub.status === 'unlocked' 
-                  ? 'bg-zinc-900/30 border-magenta-500/30 hover:bg-zinc-900/50 hover:border-magenta-500 shadow-[0_0_30px_-10px_rgba(219,39,119,0.15)]' 
-                  : 'bg-zinc-950 border-zinc-900 opacity-60 grayscale hover:opacity-100 hover:grayscale-0'}
-              `}>
-                
-                <div>
-                  <div className="flex justify-between items-start mb-6">
-                    <span className="font-mono text-xs text-slate-500 tracking-widest">CHAPTER {idx + 1}</span>
-                    {sub.status === 'unlocked' 
-                      ? <div className="p-2 bg-green-500/10 rounded-full text-green-500"><Unlock className="w-4 h-4"/></div>
-                      : <div className="p-2 bg-zinc-800 rounded-full text-slate-500"><Lock className="w-4 h-4"/></div>
-                    }
+      {/* 2. MAIN LAYOUT GRID */}
+      <div className="max-w-7xl mx-auto px-4 lg:px-8 pb-32">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
+          
+          {/* LEFT COLUMN: SUBJECTS (Spans 8 columns on Desktop) */}
+          <main className="lg:col-span-8 order-2 lg:order-1">
+            <div className="flex items-center gap-3 mb-6">
+              <Terminal className="w-5 h-5 text-blue-500" />
+              <h2 className="text-sm font-bold text-slate-300 tracking-widest uppercase">Active Modules</h2>
+              <div className="h-[1px] flex-1 bg-gradient-to-r from-blue-500/50 to-transparent"></div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {SUBJECTS.map((sub, idx) => (
+                <motion.div 
+                  key={sub.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: idx * 0.1 }}
+                  className="relative group"
+                >
+                  <div className={`
+                    relative h-full p-6 rounded-2xl border transition-all duration-300 flex flex-col justify-between overflow-hidden
+                    ${sub.status === 'unlocked' 
+                      ? 'bg-zinc-900/40 border-white/10 hover:border-magenta-500/50 hover:bg-zinc-900/60 shadow-lg' 
+                      : 'bg-black border-zinc-900 opacity-60 grayscale'}
+                  `}>
+                    
+                    {/* Hover Glow Effect */}
+                    {sub.status === 'unlocked' && (
+                      <div className="absolute inset-0 bg-gradient-to-br from-magenta-500/5 to-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                    )}
+
+                    <div>
+                      <div className="flex justify-between items-start mb-4">
+                        <span className="font-mono text-[10px] text-slate-500 tracking-[0.2em]">0{idx + 1}</span>
+                        {sub.status === 'unlocked' 
+                          ? <div className="p-1.5 bg-green-500/10 rounded text-green-500 shadow-[0_0_10px_rgba(34,197,94,0.2)]"><Unlock className="w-3.5 h-3.5"/></div>
+                          : <div className="p-1.5 bg-zinc-800 rounded text-slate-500"><Lock className="w-3.5 h-3.5"/></div>
+                        }
+                      </div>
+                      
+                      <h3 className="text-xl font-bold text-slate-100 mb-2 group-hover:text-magenta-400 transition-colors">{sub.name}</h3>
+                      
+                      {sub.status === 'locked' && (
+                        <p className="font-mono text-xs text-yellow-600 flex items-center gap-2">
+                          <span className="w-1 h-1 bg-yellow-600 rounded-full animate-pulse"></span>
+                          Unlocks {sub.startDate}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-8 pt-6 border-t border-white/5">
+                       {sub.status === 'unlocked' ? (
+                         <Link href={`/subject/${sub.id}`} className="flex items-center justify-between w-full text-xs font-bold text-white group-hover:text-magenta-300 transition-colors">
+                           <span>ACCESS TERMINAL</span>
+                           <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                         </Link>
+                       ) : (
+                         <span className="w-full text-center text-[10px] font-mono text-slate-700 uppercase tracking-widest cursor-not-allowed flex justify-center">
+                           Encrypted
+                         </span>
+                       )}
+                    </div>
                   </div>
-                  
-                  <h2 className="text-2xl font-bold mb-2 group-hover:text-magenta-400 transition-colors">{sub.name}</h2>
-                  
-                  {sub.status === 'locked' && (
-                    <p className="font-mono text-sm text-slate-500 mt-4 flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 bg-yellow-600 rounded-full"></span>
-                      Unlocks {sub.startDate}
-                    </p>
-                  )}
+                </motion.div>
+              ))}
+            </div>
+          </main>
+
+          {/* RIGHT COLUMN: ANNOUNCEMENTS (Spans 4 columns on Desktop) */}
+          <aside className="lg:col-span-4 order-1 lg:order-2">
+            <div className="lg:sticky lg:top-8"> {/* Sticky behavior only on desktop */}
+              
+              <div className="bg-zinc-900/30 border border-white/10 rounded-2xl p-6 backdrop-blur-xl shadow-2xl">
+                <div className="flex items-center gap-3 mb-6 pb-4 border-b border-white/5">
+                  <div className="relative">
+                    <Megaphone className="w-5 h-5 text-magenta-500" />
+                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
+                  </div>
+                  <h3 className="text-sm font-bold text-white tracking-widest uppercase">Intelligence</h3>
                 </div>
 
-                <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-between">
-                   {sub.status === 'unlocked' ? (
-                     <Link href={`/subject/${sub.id}`} className="w-full text-center bg-white/5 hover:bg-white/10 text-white py-3 rounded-xl font-bold transition-all text-sm tracking-wide">
-                       ENTER DEN →
-                     </Link>
-                   ) : (
-                     <span className="w-full text-center text-xs font-mono text-slate-600 uppercase tracking-widest cursor-not-allowed">
-                       Focus on Current Tasks
-                     </span>
-                   )}
+                <div className="space-y-4 max-h-[300px] lg:max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                    {announcements.length === 0 ? (
+                        <div className="text-xs text-slate-600 italic py-4 text-center">System Nominal. No new reports.</div>
+                    ) : (
+                        announcements.map((item) => (
+                            <motion.div 
+                              key={item.id} 
+                              initial={{ opacity: 0, x: 20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              className="relative pl-4 border-l-2 border-white/10 pb-2 last:pb-0"
+                            >
+                                <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-zinc-800 border border-zinc-600"></div>
+                                <p className="text-[10px] font-mono text-slate-500 mb-1">
+                                    {new Date(item.timestamp * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                </p>
+                                <p className="text-sm text-slate-300 leading-relaxed font-light">
+                                    {item.content}
+                                </p>
+                            </motion.div>
+                        ))
+                    )}
+                </div>
+                
+                {/* Decoration */}
+                <div className="mt-6 pt-4 border-t border-white/5 flex justify-between items-center text-[10px] font-mono text-slate-600">
+                   {/* <span>SECURE CONNECTION</span> */}
+                   <div className="flex gap-1">
+                     <div className="w-1 h-1 bg-green-500 rounded-full"></div>
+                     <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse"></div>
+                     <div className="w-1 h-1 bg-green-500 rounded-full"></div>
+                   </div>
                 </div>
               </div>
+
             </div>
-          ))}
+          </aside>
+
         </div>
-      </main>
+      </div>
 
-      {/* 3. Floating Contact Button */}
-      <button 
+      {/* 3. FLOATING CONTACT BUTTON */}
+      <motion.button 
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
         onClick={() => setIsContactOpen(true)}
-        className="fixed bottom-8 right-8 p-4 bg-magenta-600 hover:bg-magenta-500 text-white rounded-full shadow-[0_0_40px_rgba(219,39,119,0.4)] transition-all hover:scale-110 z-40"
+        className="fixed bottom-6 right-6 lg:bottom-10 lg:right-10 p-4 bg-gradient-to-r from-blue-600 to-magenta-600 text-white rounded-full shadow-[0_0_30px_rgba(219,39,119,0.4)] z-40 group"
       >
-        <MessageSquare className="w-6 h-6" />
-      </button>
+        <MessageSquare className="w-6 h-6 fill-current group-hover:animate-bounce" />
+      </motion.button>
 
-      {/* Contact Modal */}
+      {/* CONTACT MODAL */}
       <AnimatePresence>
         {isContactOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setIsContactOpen(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/90 backdrop-blur-sm"
             />
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-2xl p-8 shadow-2xl"
+              initial={{ scale: 0.9, opacity: 0, y: 20 }} 
+              animate={{ scale: 1, opacity: 1, y: 0 }} 
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-[#0A0A0A] border border-white/10 rounded-2xl p-8 shadow-2xl"
             >
-              <button onClick={() => setIsContactOpen(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white">
+              <button onClick={() => setIsContactOpen(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors">
                 <X className="w-5 h-5" />
               </button>
               
-              <h3 className="text-xl font-bold text-white mb-2">Message the Owner</h3>
-              <p className="text-sm text-slate-500 mb-6">Feedback, requests, or just a hello. We read everything.</p>
+              <h3 className="text-xl font-bold text-white mb-2">Encrypted Uplink</h3>
+              <p className="text-sm text-slate-500 mb-6">Send a direct message to the Architect.</p>
               
               <form onSubmit={handleSendMessage} className="space-y-4">
-                <input 
-                  required
-                  placeholder="Your Name"
-                  className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-magenta-500 outline-none"
-                  value={msgForm.name}
-                  onChange={e => setMsgForm({...msgForm, name: e.target.value})}
-                />
-                <input 
-                  required
-                  type="email"
-                  placeholder="Your Email"
-                  className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-magenta-500 outline-none"
-                  value={msgForm.email}
-                  onChange={e => setMsgForm({...msgForm, email: e.target.value})}
-                />
-                <textarea 
-                  required
-                  placeholder="Your Message..."
-                  className="w-full h-32 bg-black/50 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-magenta-500 outline-none resize-none"
-                  value={msgForm.message}
-                  onChange={e => setMsgForm({...msgForm, message: e.target.value})}
-                />
+                <div className="space-y-1">
+                  <label className="text-[10px] font-mono text-slate-500 uppercase">Identity</label>
+                  <input 
+                    required
+                    placeholder="Your Name"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-blue-500 focus:bg-black outline-none transition-all"
+                    value={msgForm.name}
+                    onChange={e => setMsgForm({...msgForm, name: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-mono text-slate-500 uppercase">Contact Frequency</label>
+                  <input 
+                    required
+                    type="email"
+                    placeholder="Your Email"
+                    className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-blue-500 focus:bg-black outline-none transition-all"
+                    value={msgForm.email}
+                    onChange={e => setMsgForm({...msgForm, email: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-mono text-slate-500 uppercase">Transmission Data</label>
+                  <textarea 
+                    required
+                    placeholder="Message content..."
+                    className="w-full h-32 bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white focus:border-blue-500 focus:bg-black outline-none resize-none transition-all"
+                    value={msgForm.message}
+                    onChange={e => setMsgForm({...msgForm, message: e.target.value})}
+                  />
+                </div>
                 <button 
                   disabled={sending}
-                  className="w-full bg-magenta-600 hover:bg-magenta-500 text-white font-bold py-3 rounded-lg flex justify-center items-center gap-2 transition-all disabled:opacity-50"
+                  className="w-full bg-white text-black font-bold py-3 rounded-lg flex justify-center items-center gap-2 hover:bg-slate-200 transition-colors disabled:opacity-50 mt-4"
                 >
                   <Send className="w-4 h-4" />
-                  {sending ? "Sending..." : "Send Message"}
+                  {sending ? "Transmitting..." : "Send Transmission"}
                 </button>
               </form>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+      `}</style>
     </div>
   );
 }

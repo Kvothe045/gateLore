@@ -1,18 +1,19 @@
 "use client";
 import { useState, useEffect } from "react";
 import { adminApi } from "@/lib/admin-api";
-import { Bell, Mail, Trash2, Send, X } from "lucide-react";
+import { Bell, Mail, Trash2, Send, Plus } from "lucide-react";
 import { InboxMessage } from "@/types/admin";
 
 export default function CommunicationPanel() {
   const [messages, setMessages] = useState<InboxMessage[]>([]);
-  const [broadcastMsg, setBroadcastMsg] = useState("");
-  const [currentBroadcast, setCurrentBroadcast] = useState(""); // Track active one
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [newAnnouncement, setNewAnnouncement] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     loadInbox();
-    const interval = setInterval(loadInbox, 30000);
+    loadAnnouncements();
+    const interval = setInterval(() => { loadInbox(); loadAnnouncements(); }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -20,27 +21,29 @@ export default function CommunicationPanel() {
     try {
       const msgs = await adminApi.getInbox();
       if (Array.isArray(msgs)) setMessages(msgs);
-      
-      // Also fetch current broadcast to show deletion state
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/broadcast`);
-      const data = await res.json();
-      setCurrentBroadcast(data.message);
     } catch (e) { console.error("Inbox Error"); }
   };
 
-  const handleBroadcast = async () => {
-    if (!broadcastMsg) return;
+  const loadAnnouncements = async () => {
+    try {
+      const data = await adminApi.getBroadcasts();
+      if (Array.isArray(data)) setAnnouncements(data);
+    } catch (e) { console.error("Broadcast Error"); }
+  };
+
+  const handleAddBroadcast = async () => {
+    if (!newAnnouncement) return;
     setLoading(true);
-    await adminApi.broadcast(broadcastMsg);
-    setCurrentBroadcast(broadcastMsg);
-    setBroadcastMsg("");
+    await adminApi.addBroadcast(newAnnouncement);
+    setNewAnnouncement("");
+    loadAnnouncements();
     setLoading(false);
   };
 
-  const handleDeleteBroadcast = async () => {
-    if(!confirm("Remove current announcement?")) return;
-    await adminApi.deleteBroadcast();
-    setCurrentBroadcast("");
+  const handleDeleteBroadcast = async (id: string) => {
+    if(!confirm("Remove this announcement?")) return;
+    await adminApi.deleteBroadcast(id);
+    loadAnnouncements();
   };
 
   const clearAllMessages = async () => {
@@ -52,43 +55,48 @@ export default function CommunicationPanel() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
-      {/* LEFT: Broadcast */}
-      <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 relative">
+      {/* LEFT: Broadcast List */}
+      <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 relative flex flex-col h-[500px]">
         <h3 className="text-sm font-bold text-slate-400 flex items-center gap-2 mb-4">
-          <Bell className="w-4 h-4" /> LIVE ANNOUNCEMENT
+          <Bell className="w-4 h-4" /> ANNOUNCEMENT CENTER
         </h3>
         
-        {/* Active Announcement Preview */}
-        {currentBroadcast && (
-           <div className="mb-4 p-3 bg-green-900/10 border border-green-500/20 rounded flex justify-between items-center">
-             <div>
-               <p className="text-[10px] text-green-500 font-bold mb-1">CURRENTLY LIVE:</p>
-               <p className="text-xs text-green-100">{currentBroadcast}</p>
-             </div>
-             <button onClick={handleDeleteBroadcast} className="p-2 hover:bg-red-500/20 text-red-500 rounded transition-colors">
-               <Trash2 className="w-4 h-4" />
-             </button>
-           </div>
-        )}
+        {/* Input */}
+        <div className="flex gap-2 mb-6">
+            <input
+              value={newAnnouncement}
+              onChange={(e) => setNewAnnouncement(e.target.value)}
+              className="flex-1 bg-black border border-white/20 rounded-lg px-4 py-2 text-sm text-white focus:border-magenta-500 outline-none"
+              placeholder="New announcement..."
+            />
+            <button
+              onClick={handleAddBroadcast}
+              disabled={loading || !newAnnouncement}
+              className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+        </div>
 
-        <textarea
-          value={broadcastMsg}
-          onChange={(e) => setBroadcastMsg(e.target.value)}
-          className="w-full bg-black border border-white/20 rounded p-3 text-sm text-white focus:border-magenta-500 outline-none h-24 resize-none"
-          placeholder="Type notification message here..."
-        />
-        <button
-          onClick={handleBroadcast}
-          disabled={loading || !broadcastMsg}
-          className="mt-4 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded flex justify-center items-center gap-2 transition-colors disabled:opacity-50"
-        >
-          <Send className="w-4 h-4" />
-          {loading ? "SENDING..." : "BROADCAST TO SITE"}
-        </button>
+        {/* List */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+           {announcements.length === 0 ? (
+             <div className="text-center text-slate-600 mt-10 text-xs">No active announcements</div>
+           ) : (
+             announcements.map((item) => (
+               <div key={item.id} className="bg-white/5 p-3 rounded border border-white/5 flex justify-between items-start group hover:border-white/20 transition-colors">
+                 <div className="text-sm text-slate-200">{item.content}</div>
+                 <button onClick={() => handleDeleteBroadcast(item.id)} className="text-slate-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <Trash2 className="w-4 h-4" />
+                 </button>
+               </div>
+             ))
+           )}
+        </div>
       </div>
 
-      {/* RIGHT: Inbox */}
-      <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 flex flex-col h-80">
+      {/* RIGHT: Inbox (Same as before) */}
+      <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 flex flex-col h-[500px]">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-sm font-bold text-slate-400 flex items-center gap-2">
             <Mail className="w-4 h-4" /> STUDENT MESSAGES
