@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { SUBJECTS } from "@/constants/subjects";
 import { usePlayer } from "@/hooks/usePlayer";
 import { 
   CheckCircle2, Play, Download, ChevronLeft, 
@@ -11,20 +10,35 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
+// Types
+interface FileData {
+  id: number;
+  name: string;
+  size: number;
+  type: "video" | "resource";
+}
+
+interface SubjectData {
+  id: number;
+  name: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+}
+
 export default function SubjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const subjectId = parseInt(id);
-  const defaultSubject = SUBJECTS.find(s => s.id === subjectId);
 
   // --- STATE ---
-  const [subjectData, setSubjectData] = useState<any>(defaultSubject);
-  const [files, setFiles] = useState<any[]>([]);
+  const [subjectData, setSubjectData] = useState<SubjectData | null>(null);
+  const [files, setFiles] = useState<FileData[]>([]); 
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'modules' | 'resources'>('modules');
   
   // --- VIDEO ENGINE STATE ---
-  const [activeVideo, setActiveVideo] = useState<any>(null);
+  const [activeVideo, setActiveVideo] = useState<FileData | null>(null);
   const [videoSrc, setVideoSrc] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [buffering, setBuffering] = useState(false);
@@ -57,28 +71,37 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   const isSeeking = useRef(false);
   
   usePlayer(videoRef, (speed) => setPlaybackSpeed(speed));
-  
   const speedOptions = [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5];
 
   // --- INIT ---
   useEffect(() => {
-    if (!defaultSubject) return;
     setWatched(JSON.parse(localStorage.getItem(`watched_${id}`) || "[]"));
 
+    // 1. Fetch Subject Info
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/system-stats`, {
         headers: { "x-api-key": process.env.NEXT_PUBLIC_AUTH_TOKEN! }
     }).then(res => res.json()).then(stats => {
         const remoteSub = stats.subjects.find((s:any) => s.id === subjectId);
-        if(remoteSub) setSubjectData(remoteSub);
-    }).catch(() => {}); 
-
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/init?topic_id=${id}&topic_name=${defaultSubject.name}`, {
-      headers: { "x-api-key": process.env.NEXT_PUBLIC_AUTH_TOKEN! }
-    })
-    .then(res => res.json())
-    .then(data => setFiles(data))
-    .catch(() => router.push("/"))
-    .finally(() => setLoading(false));
+        if(remoteSub) {
+            setSubjectData(remoteSub);
+            
+            // 2. Fetch Files (Only if we have the subject name)
+            fetch(`${process.env.NEXT_PUBLIC_API_URL}/init?topic_id=${id}&topic_name=${remoteSub.name}`, {
+              headers: { "x-api-key": process.env.NEXT_PUBLIC_AUTH_TOKEN! }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setFiles(data);
+                } else {
+                    console.log("Loading or empty...", data);
+                    setFiles([]); 
+                }
+            })
+            .catch(err => console.error("File Fetch Error:", err))
+            .finally(() => setLoading(false));
+        }
+    }).catch(() => setLoading(false)); 
 
     const onFSChange = () => {
         const isFS = !!document.fullscreenElement;
@@ -87,7 +110,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     };
     document.addEventListener("fullscreenchange", onFSChange);
     return () => document.removeEventListener("fullscreenchange", onFSChange);
-  }, [id, defaultSubject, router]);
+  }, [id, subjectId, router]);
 
   // --- KEYBOARD SHORTCUTS ---
   useEffect(() => {
@@ -120,6 +143,11 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
           toggleMute();
           showControls();
           break;
+        case " ":
+          e.preventDefault();
+          togglePlayPause();
+          showControls();
+          break;
       }
     };
 
@@ -127,7 +155,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeVideo]);
 
-  // --- ORIENTATION LOCK ---
+  // --- HELPER FUNCTIONS ---
   const lockOrientation = async () => {
     const screenAny = window.screen as any;
     if (screenAny.orientation && screenAny.orientation.lock) {
@@ -141,17 +169,10 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     }
   };
 
-  // --- CONTROL VISIBILITY ---
   const showControls = useCallback(() => {
     setControlsVisible(true);
     document.body.style.cursor = 'auto';
-    
-    // Clear existing timer
-    if (controlsTimeoutRef.current) {
-        clearTimeout(controlsTimeoutRef.current);
-    }
-    
-    // Set new timer: Hide after 3 seconds, UNLESS user is dragging the scrubber
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     if (!isSeeking.current) {
       controlsTimeoutRef.current = setTimeout(() => {
         setControlsVisible(false);
@@ -161,7 +182,6 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     }
   }, [isFullscreen]);
 
-  // Ensure controls stay up when interacting with menus
   useEffect(() => {
     if (showTips || showSpeedMenu) {
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
@@ -169,7 +189,6 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     }
   }, [showTips, showSpeedMenu]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
@@ -177,28 +196,21 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     };
   }, []);
 
-  // --- TAP HANDLER ---
   const handleTap = useCallback((clientX: number) => {
     if (!playerContainerRef.current || !videoRef.current) return;
-
-    // Dismiss menu if open
     setShowSpeedMenu(false);
 
     const rect = playerContainerRef.current.getBoundingClientRect();
     const x = clientX - rect.left;
     const width = rect.width;
     
-    // Zone definitions for double tap
     const isLeft = x < width * 0.35;
     const isRight = x > width * 0.65;
-    
     const now = Date.now();
     const timeDiff = now - lastTapTimeRef.current;
     
     if (timeDiff < 300) {
-      // --- DOUBLE TAP ---
       if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
-      
       if (isLeft) {
         videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10);
         setDoubleTapFeedback('rewind');
@@ -210,49 +222,32 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
       } else {
         togglePlayPause();
       }
-      
-      // Update UI immediately
-      setCurrentTime(videoRef.current.currentTime);
-      setProgress((videoRef.current.currentTime / videoRef.current.duration) * 100);
-      showControls(); // Ensure controls show on double tap
-
+      showControls();
     } else {
-      // --- SINGLE TAP ---
-      // Wait to confirm it's not a double tap
       tapTimeoutRef.current = setTimeout(() => {
         if (controlsVisible) {
-           // If visible -> Hide
            setControlsVisible(false);
            if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
         } else {
-           // If hidden -> Show (this starts the 3s timer)
            showControls();
         }
       }, 300);
     }
-
     lastTapTimeRef.current = now;
   }, [controlsVisible, showControls]);
 
   const handleContainerClick = (e: React.MouseEvent) => {
-    // Ignore clicks on actual buttons/inputs
     const target = e.target as HTMLElement;
     if (target.closest('button') || target.closest('input')) return;
-    
-    // Pass to tap handler
     handleTap(e.clientX);
   };
 
   const togglePlayPause = useCallback(() => {
     if (!videoRef.current) return;
-    if (videoRef.current.paused) {
-      videoRef.current.play();
-    } else {
-      videoRef.current.pause();
-    }
+    if (videoRef.current.paused) videoRef.current.play();
+    else videoRef.current.pause();
   }, []);
 
-  // --- VOLUME LOGIC ---
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newVol = parseFloat(e.target.value);
     setVolume(newVol);
@@ -267,22 +262,18 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     const newState = !isMuted;
     videoRef.current.muted = newState;
     setIsMuted(newState);
-    
     if (!newState && volume === 0) {
         setVolume(0.5);
         videoRef.current.volume = 0.5;
     }
   };
 
-  // --- PLAYBACK LOGIC ---
-  const playVideo = async (file: any) => {
+  const playVideo = async (file: FileData) => {
     setBuffering(true);
     setActiveVideo(file);
     setIsMobileSidebarOpen(false);
     setControlsVisible(true);
-    
     if (videoSrc) URL.revokeObjectURL(videoSrc);
-    
     try {
       const res = await fetch("/api/sign-lore", {
         method: "POST",
@@ -300,26 +291,13 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     setDuration(videoRef.current.duration);
     videoRef.current.playbackRate = playbackSpeed;
     videoRef.current.volume = volume;
-    
     const savedTime = localStorage.getItem(`timestamp_${activeVideo.id}`);
     if (savedTime) videoRef.current.currentTime = parseFloat(savedTime);
     videoRef.current.play().catch(() => {});
   };
 
-  const onVideoPlay = () => {
-    setIsPlaying(true);
-    setBuffering(false);
-    showControls();
-  };
-
-  const onVideoPause = () => {
-    setIsPlaying(false);
-    setControlsVisible(true);
-    // Even on pause, we want the controls to eventually fade if there's no activity, 
-    // but showControls handles the 3s timeout now.
-    showControls();
-  };
-
+  const onVideoPlay = () => { setIsPlaying(true); setBuffering(false); showControls(); };
+  const onVideoPause = () => { setIsPlaying(false); setControlsVisible(true); showControls(); };
   const onVideoWaiting = () => setBuffering(true);
   const onVideoCanPlay = () => setBuffering(false);
 
@@ -331,9 +309,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     setCurrentTime(ct);
     setProgress((ct / dur) * 100);
 
-    if (Math.floor(ct) % 5 === 0) {
-      localStorage.setItem(`timestamp_${activeVideo.id}`, ct.toString());
-    }
+    if (Math.floor(ct) % 5 === 0) localStorage.setItem(`timestamp_${activeVideo.id}`, ct.toString());
     
     if ((ct / dur) > 0.9 && !watched.includes(String(activeVideo.id))) {
       const updated = [...watched, String(activeVideo.id)];
@@ -342,12 +318,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     }
   };
 
-  const handleSeekStart = () => {
-    isSeeking.current = true;
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    setControlsVisible(true);
-  };
-
+  const handleSeekStart = () => { isSeeking.current = true; if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current); setControlsVisible(true); };
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
     if (!videoRef.current) return;
@@ -356,11 +327,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     setProgress(val);
     setCurrentTime(time);
   };
-
-  const handleSeekEnd = () => {
-    isSeeking.current = false;
-    showControls();
-  };
+  const handleSeekEnd = () => { isSeeking.current = false; showControls(); };
 
   const changeSpeed = (speed: number) => {
     setPlaybackSpeed(speed);
@@ -369,11 +336,8 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   };
 
   const toggleSidebar = () => {
-    if (window.innerWidth < 768) {
-        setIsMobileSidebarOpen(!isMobileSidebarOpen);
-    } else {
-        setIsDesktopSidebarOpen(!isDesktopSidebarOpen);
-    }
+    if (window.innerWidth < 768) setIsMobileSidebarOpen(!isMobileSidebarOpen);
+    else setIsDesktopSidebarOpen(!isDesktopSidebarOpen);
   };
 
   const toggleFullscreen = async () => {
@@ -388,7 +352,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     showControls();
   };
 
-  const handleDownload = async (e: React.MouseEvent, file: any) => {
+  const handleDownload = async (e: React.MouseEvent, file: FileData) => {
     e.stopPropagation();
     try {
       const res = await fetch("/api/sign-lore", {
@@ -419,7 +383,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
            {loading ? (
               <div className="flex justify-center p-10"><Loader2 className="animate-spin text-indigo-500"/></div>
            ) : activeTab === 'modules' ? (
-              videos.map((f) => (
+              files.filter(f => f.type === 'video').map((f) => (
                 <div key={f.id} onClick={() => playVideo(f)} className={`p-3 md:p-4 rounded-lg cursor-pointer group flex gap-3 md:gap-4 items-center transition-all ${activeVideo?.id === f.id ? 'bg-indigo-500/10 border border-indigo-500/20 shadow-[0_0_15px_-5px_rgba(99,102,241,0.3)]' : 'bg-black/20 hover:bg-white/5 border border-transparent active:bg-white/10'}`}>
                   <div className={`w-4 h-4 md:w-5 md:h-5 rounded-full border flex items-center justify-center transition-all shrink-0 ${watched.includes(String(f.id)) ? 'bg-green-500 border-green-500 scale-110' : 'border-slate-700'}`}>
                     {watched.includes(String(f.id)) && <CheckCircle2 className="w-3 md:w-3.5 h-3 md:h-3.5 text-black" />}
@@ -432,7 +396,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                 </div>
               ))
            ) : (
-              resources.map((f) => (
+              files.filter(f => f.type !== 'video').map((f) => (
                 <div key={f.id} onClick={(e) => handleDownload(e, f)} className="flex gap-3 md:gap-4 items-center p-3 md:p-4 rounded-lg bg-black/20 hover:bg-white/5 border border-transparent hover:border-blue-500/30 cursor-pointer group transition-all active:bg-white/10">
                   <div className="p-2 bg-blue-500/10 rounded text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-colors shadow-[0_0_10px_rgba(59,130,246,0.1)] shrink-0"><Download className="w-3.5 md:w-4 h-3.5 md:h-4" /></div>
                   <div className="flex-1 min-w-0">
@@ -442,20 +406,29 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                 </div>
               ))
            )}
+           {!loading && files.length === 0 && (
+                <div className="text-center py-10">
+                    <p className="text-xs text-slate-500 font-mono">ENCRYPTED DATA NOT FOUND</p>
+                    <p className="text-[10px] text-slate-700 mt-1">System is fetching from secure cloud...</p>
+                    <p className="text-[10px] text-slate-700">Please refresh in 10-20 seconds.</p>
+                </div>
+           )}
         </div>
     </>
   );
 
-  if (!subjectData) return null;
+  if (!subjectData) return (
+    <div className="h-screen bg-[#050505] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+    </div>
+  );
 
   const videos = files.filter(f => f.type === 'video');
-  const resources = files.filter(f => f.type !== 'video');
   const watchedCount = videos.filter(v => watched.includes(String(v.id))).length;
   const progressPercent = videos.length > 0 ? Math.round((watchedCount / videos.length) * 100) : 0;
 
   return (
     <div className="h-screen bg-[#050505] text-slate-200 flex flex-col font-sans selection:bg-indigo-500/30 overflow-hidden">
-      
       {/* HEADER */}
       <div className="bg-zinc-950 border-b border-white/5 flex flex-col shrink-0 z-50 py-3 md:py-4 px-4 md:px-6 relative shadow-2xl">
         <div className="flex items-center justify-between gap-3">
@@ -470,9 +443,6 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
             <div className="w-full max-w-xs md:max-w-sm lg:w-96 h-1.5 md:h-2 bg-zinc-900 rounded-full overflow-hidden border border-white/10 relative">
                <div className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.5)] transition-all duration-1000 ease-out" style={{ width: `${progressPercent}%` }} />
             </div>
-            <span className="text-[10px] font-mono text-indigo-300 tracking-widest uppercase mt-0.5">
-               Deadline: {subjectData.endDate}
-            </span>
           </div>
           
           <div className="flex items-center gap-2 md:gap-3 shrink-0">
@@ -541,7 +511,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                     </div>
                   </motion.div>
                 )}
-                
+               
                 {/* DOUBLE TAP ANIMATION */}
                 {doubleTapFeedback === 'rewind' && (
                   <motion.div 
@@ -573,7 +543,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                   </motion.div>
                 )}
               </AnimatePresence>
-              
+             
               {/* VIDEO ELEMENT */}
               <video 
                 ref={videoRef} 
@@ -623,16 +593,16 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                           className="hover:text-indigo-400 text-white transition-colors"
                         >
                             {isPlaying ? (
-                              <div className="w-8 h-8 flex gap-1 justify-center items-center">
-                                <div className="w-2.5 h-6 bg-current rounded"/>
-                                <div className="w-2.5 h-6 bg-current rounded"/>
-                              </div>
+                                <div className="w-8 h-8 flex gap-1 justify-center items-center">
+                                    <div className="w-2.5 h-6 bg-current rounded"/>
+                                    <div className="w-2.5 h-6 bg-current rounded"/>
+                                </div>
                             ) : (
-                              <Play className="w-8 h-8 fill-current"/>
+                                <Play className="w-8 h-8 fill-current"/>
                             )}
                         </button>
 
-                        {/* VOLUME CONTROL (Slider Hidden on Mobile) */}
+                        {/* VOLUME CONTROL */}
                         <div className="group/volume flex items-center gap-0 w-8 sm:hover:w-32 transition-all duration-300 overflow-hidden">
                            <button onClick={(e) => { e.stopPropagation(); toggleMute(); }} className="hover:text-indigo-400 text-white mr-2 shrink-0">
                               {isMuted || volume === 0 ? <VolumeX className="w-6 h-6"/> : volume < 0.5 ? <Volume1 className="w-6 h-6"/> : <Volume2 className="w-6 h-6"/>}
@@ -642,14 +612,14 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                              className="w-0 sm:group-hover/volume:w-20 h-1 bg-white/30 rounded-full appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white transition-all duration-300 hidden sm:block opacity-0 sm:group-hover/volume:opacity-100"
                            />
                         </div>
-                        
+                       
                         {/* TIME */}
                         <div className="flex items-center gap-1.5 text-sm font-mono text-slate-300">
                           <span className="text-white font-bold">{formatTime(currentTime)}</span>
                           <span className="text-slate-600">/</span>
                           <span className="text-slate-400">{formatTime(duration)}</span>
                         </div>
-                        
+                       
                         <button 
                           onClick={(e) => { e.stopPropagation(); setShowTips(!showTips); }} 
                           className="text-slate-300 hover:text-white"
@@ -661,8 +631,8 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                     <div className="flex items-center gap-4">
                         <div className="relative">
                             <button 
-                              onClick={(e) => { e.stopPropagation(); setShowSpeedMenu(!showSpeedMenu); }} 
-                              className="flex items-center gap-1 px-2 py-1 bg-white/10 rounded text-xs font-bold text-white border border-white/5 hover:bg-zinc-800"
+                               onClick={(e) => { e.stopPropagation(); setShowSpeedMenu(!showSpeedMenu); }} 
+                               className="flex items-center gap-1 px-2 py-1 bg-white/10 rounded text-xs font-bold text-white border border-white/5 hover:bg-zinc-800"
                             >
                                 <Zap className="w-3 h-3 text-yellow-400 fill-current" /> {playbackSpeed}x
                             </button>
@@ -785,6 +755,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+        @media (hover: none) and (pointer: coarse) { .group .opacity-0 { opacity: 1 !important; } }
       `}</style>
     </div>
   );
