@@ -116,10 +116,10 @@ export default function HomeClient() {
             GATE LORES
           </h1>
           <p className="max-w-2xl mx-auto text-slate-400 text-base lg:text-xl leading-relaxed font-light">
-            The <span className="text-white font-semibold">Study Den</span> for elite preparation.
+            The <span className="text-white font-semibold">Study Den</span> for free preparation.
             <br className="hidden md:block" />
             <span className="text-xs lg:text-sm font-mono text-slate-600 mt-4 block tracking-widest uppercase">
-              // Access Restricted // Authorized Personnel Only
+              // For the students by the students. Please keep it private, and among trustworthy fellas...
             </span>
           </p>
         </motion.div>
