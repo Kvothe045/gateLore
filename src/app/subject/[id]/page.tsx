@@ -9,6 +9,10 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import VideoManager from "@/components/video/VideoManager";
 
+// --- CONFIGURATION ---
+// DIRECT VM CONNECTION (Bypassing Vercel/Next.js Proxy)
+const VM_API_URL = "http://20.193.130.195:8000"; 
+
 export default function SubjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -34,7 +38,8 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
 
     const fetchData = async () => {
         try {
-            const statsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/system-stats`, {
+            // We can still use the VM URL for metadata fetching too, it's faster.
+            const statsRes = await fetch(`${VM_API_URL}/admin/system-stats`, {
                 headers: { "x-api-key": process.env.NEXT_PUBLIC_AUTH_TOKEN! }
             });
             const stats = await statsRes.json();
@@ -42,7 +47,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
             
             if (sub) {
                 setSubjectData(sub);
-                const filesRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/init?topic_id=${id}&topic_name=${sub.name}`, {
+                const filesRes = await fetch(`${VM_API_URL}/init?topic_id=${id}&topic_name=${encodeURIComponent(sub.name)}`, {
                     headers: { "x-api-key": process.env.NEXT_PUBLIC_AUTH_TOKEN! }
                 });
                 const filesData = await filesRes.json();
@@ -59,20 +64,22 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   }, [id, subjectId]);
 
   // --- ACTIONS ---
-  const playVideo = async (file: any) => {
+  const playVideo = (file: any) => {
     setActiveVideo(file);
     setIsMobileSidebarOpen(false);
-    if (videoSrc) URL.revokeObjectURL(videoSrc);
-    try {
-        const res = await fetch("/api/sign-lore", {
-            method: "POST",
-            body: JSON.stringify({ id: file.id, topic_id: id, topic_name: subjectData.name, filename: file.name })
-        });
-        const { token } = await res.json();
-        setVideoSrc(`/api/lore-world?token=${encodeURIComponent(token)}`);
-    } catch {
-        alert("Authorization Failed");
-    }
+    
+    // 1. DIRECT STREAMING URL construction
+    // We attach the API key directly to the URL parameters.
+    // This allows the browser to send Range Headers directly to your VM.
+    const apiKey = process.env.NEXT_PUBLIC_AUTH_TOKEN || "f8c2d692f4b74da1386ee5173e111564";
+    
+    // Encode the topic name to handle spaces/special chars safely
+    const topicParam = encodeURIComponent(subjectData.name);
+    
+    const streamUrl = `${VM_API_URL}/stream/${file.id}?topic_id=${id}&topic_name=${topicParam}&api_key=${apiKey}`;
+    
+    console.log("Streaming from:", streamUrl); // Debugging
+    setVideoSrc(streamUrl);
   };
 
   const markWatched = () => {
@@ -256,7 +263,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                             <h1 className="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40 tracking-tighter mb-4">
                                 {subjectData ? subjectData.name : "Loading Protocol..."}
                             </h1>
-                            
+                           
                             {subjectData && (
                                 <div className="inline-flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2 rounded-full mb-10 backdrop-blur-md">
                                     <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
@@ -277,7 +284,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                                 <button onClick={() => setIsMobileSidebarOpen(true)} className="md:hidden w-full px-8 py-4 bg-white text-black font-bold rounded-lg uppercase tracking-widest text-xs hover:bg-slate-200 transition-colors flex items-center justify-center gap-2">
                                     <Smartphone className="w-4 h-4"/> Select Module
                                 </button>
-                                
+                               
                                 <div className="hidden md:flex items-center gap-2 text-xs font-mono text-slate-600">
                                     <ShieldCheck className="w-4 h-4 text-green-500" />
                                     <span> CONSISTENCY IS KEY</span>
