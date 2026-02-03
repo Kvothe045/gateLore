@@ -11,7 +11,7 @@ import VideoManager from "@/components/video/VideoManager";
 
 // --- CONFIGURATION ---
 // DIRECT VM CONNECTION (Bypassing Vercel/Next.js Proxy)
-const VM_API_URL = "http://20.193.130.195:8000"; 
+const VM_API_URL = "https://vlogs.gaterealty.tech"; 
 
 export default function SubjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
