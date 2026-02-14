@@ -14,6 +14,15 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'practicepaper.in',
+      },
+    ],
+  },
   
   // 2. Ensure we don't leak "Powered By Next.js"
   poweredByHeader: false,
