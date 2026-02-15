@@ -14,8 +14,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // --- RENDER KEEP-ALIVE HEARTBEAT ---
     // Render free tier sleeps after 15 mins. This prevents data loss on long mocks.
     const keepAlive = async () => {
-      // Avoid pinging if the user has minimized the browser or switched tabs
-      if (document.visibilityState !== 'visible') return;
 
       try {
         // Pinging a lightweight metadata endpoint to keep Render's process 'hot'
