@@ -1,8 +1,8 @@
+// src/app/dashboard/mock/history/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import { History, Calendar, Trophy, Target, ChevronRight, Activity, ArrowLeft } from "lucide-react";
+import { History, Calendar, Trophy, Target, ChevronRight, Activity, ArrowLeft, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
@@ -21,14 +21,25 @@ type HistoryItem = {
 export default function MockHistoryArchive() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getMockHistory()
-      .then(data => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_CORTEX_API_URL}/api/mock/history`);
+        if (!res.ok) throw new Error("Failed to fetch archives.");
+        
+        const data = await res.json();
         setHistory(data);
+      } catch (err) {
+        console.error("Archive extraction failed:", err);
+        setError("Unable to connect to the mainframe. Archival data offline.");
+      } finally {
         setLoading(false);
-      })
-      .catch(console.error);
+      }
+    };
+
+    fetchHistory();
   }, []);
 
   if (loading) {
@@ -36,6 +47,22 @@ export default function MockHistoryArchive() {
       <div className="h-[70vh] flex flex-col items-center justify-center space-y-4">
         <Activity className="w-10 h-10 text-cyan-500 animate-spin opacity-80" />
         <p className="text-cyan-500 font-mono tracking-[0.2em] text-sm animate-pulse">ACCESSING COMBAT ARCHIVES...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="h-[70vh] flex flex-col items-center justify-center space-y-4 text-center">
+        <AlertTriangle className="w-12 h-12 text-rose-500" />
+        <h2 className="text-xl font-bold text-zinc-200">System Failure</h2>
+        <p className="text-zinc-500 max-w-md text-sm">{error}</p>
+        <button 
+          onClick={() => window.location.reload()} 
+          className="px-6 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded mt-4 transition-colors font-bold uppercase text-xs tracking-widest"
+        >
+          Retry Connection
+        </button>
       </div>
     );
   }
@@ -57,9 +84,9 @@ export default function MockHistoryArchive() {
             A complete ledger of all previous mock exams and targeted simulations.
           </p>
         </div>
-        <div className="text-right bg-zinc-900/40 border border-zinc-800 p-4 rounded-xl">
+        <div className="text-right bg-zinc-900/40 border border-zinc-800 p-4 rounded-xl shadow-inner">
           <p className="text-xs font-bold tracking-widest text-zinc-500 uppercase mb-1">Total Operations</p>
-          <p className="text-2xl font-black text-cyan-400">{history.length}</p>
+          <p className="text-2xl font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.3)]">{history.length}</p>
         </div>
       </header>
 
@@ -72,7 +99,7 @@ export default function MockHistoryArchive() {
             <p className="text-sm text-zinc-500 mt-2 mb-6">You haven't initialized any combat simulations yet.</p>
             <Link 
               href="/dashboard/mock" 
-              className="px-6 py-2.5 bg-cyan-600/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-600/20 rounded-md font-bold tracking-widest uppercase text-xs transition-colors inline-block"
+              className="px-6 py-2.5 bg-cyan-600/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-600/20 rounded-md font-bold tracking-widest uppercase text-xs transition-colors inline-block shadow-[0_0_15px_rgba(8,145,178,0.15)]"
             >
               Launch First Mock
             </Link>
@@ -84,12 +111,13 @@ export default function MockHistoryArchive() {
               const formattedDate = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
               const formattedTime = dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
               const isGoodAccuracy = test.accuracy >= 70;
+              const isPoorAccuracy = test.accuracy < 40;
 
               return (
                 <Link 
                   key={test.test_id} 
                   href={`/dashboard/mock/report/${test.test_id}`}
-                  className="group block bg-zinc-900/30 border border-zinc-800/60 hover:border-cyan-500/40 hover:bg-zinc-900/60 rounded-xl p-5 transition-all duration-300 relative overflow-hidden"
+                  className="group block bg-zinc-900/30 border border-zinc-800/60 hover:border-cyan-500/40 hover:bg-zinc-900/60 rounded-xl p-5 transition-all duration-300 relative overflow-hidden shadow-lg"
                 >
                   {/* Subtle hover gradient */}
                   <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/0 via-cyan-500/0 to-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
@@ -98,7 +126,7 @@ export default function MockHistoryArchive() {
                     
                     {/* Left: Date & Type */}
                     <div className="flex items-center gap-6">
-                      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-center min-w-[80px]">
+                      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-center min-w-[80px] shadow-inner">
                         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Date</p>
                         <p className="text-sm font-black text-zinc-200">{formattedDate}</p>
                         <p className="text-xs font-mono text-zinc-500 mt-0.5">{formattedTime}</p>
@@ -106,10 +134,15 @@ export default function MockHistoryArchive() {
                       
                       <div>
                         <div className="flex items-center gap-3 mb-1">
-                          <h3 className="text-lg font-bold text-zinc-100 group-hover:text-cyan-50 transition-colors">
-                            Operation {test.test_id.split("-")[0].toUpperCase()}
+                          <h3 className="text-lg font-bold text-zinc-100 group-hover:text-cyan-50 transition-colors uppercase tracking-wide">
+                            Operation {test.test_id.split("-")[0]}
                           </h3>
-                          <span className="px-2.5 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase bg-zinc-800 text-zinc-400 border border-zinc-700">
+                          <span className={cn(
+                            "px-2.5 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase border shadow-inner",
+                            test.test_type === "Full Mock" 
+                              ? "bg-cyan-950/30 text-cyan-400 border-cyan-500/30" 
+                              : "bg-purple-950/30 text-purple-400 border-purple-500/30"
+                          )}>
                             {test.test_type || "CUSTOM"}
                           </span>
                         </div>
@@ -125,7 +158,7 @@ export default function MockHistoryArchive() {
                       {/* Score */}
                       <div className="text-right">
                         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1 flex items-center justify-end gap-1.5">
-                          <Trophy className="w-3 h-3" /> Score
+                          <Trophy className="w-3 h-3 text-amber-500" /> Score
                         </p>
                         <p className="font-mono text-lg font-bold text-cyan-400">
                           {test.total_score} <span className="text-sm text-zinc-600">/ {test.max_marks}</span>
@@ -135,20 +168,22 @@ export default function MockHistoryArchive() {
                       {/* Accuracy */}
                       <div className="text-right">
                         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1 flex items-center justify-end gap-1.5">
-                          <Target className="w-3 h-3" /> Accuracy
+                          <Target className="w-3 h-3 text-purple-400" /> Accuracy
                         </p>
                         <p className={cn(
-                          "font-mono text-lg font-bold px-3 py-0.5 rounded border",
+                          "font-mono text-lg font-bold px-3 py-0.5 rounded border shadow-inner",
                           isGoodAccuracy 
-                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
-                            : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
+                            : isPoorAccuracy 
+                            ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                            : "bg-amber-500/10 border-amber-500/30 text-amber-400"
                         )}>
                           {test.accuracy}%
                         </p>
                       </div>
 
                       {/* Arrow indicator */}
-                      <div className="hidden md:flex items-center justify-center w-8 h-8 rounded-full bg-zinc-950 border border-zinc-800 group-hover:border-cyan-500/50 group-hover:bg-cyan-950/30 transition-colors">
+                      <div className="hidden md:flex items-center justify-center w-8 h-8 rounded-full bg-zinc-950 border border-zinc-800 group-hover:border-cyan-500/50 group-hover:bg-cyan-950/30 transition-colors shadow-sm">
                         <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-cyan-400 transition-colors" />
                       </div>
                       

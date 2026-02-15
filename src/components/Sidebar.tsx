@@ -27,7 +27,7 @@ export function Sidebar() {
           <div className="absolute inset-0 bg-cyan-500 blur-[10px] opacity-50" />
         </div>
         <span className="text-2xl font-black tracking-tighter text-zinc-100">
-          CORTEX<span className="text-cyan-500">.AI</span>
+          CORTEX<span className="text-cyan-500">.AIR-1</span>
         </span>
       </div>
 

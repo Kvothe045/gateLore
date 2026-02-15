@@ -1,9 +1,10 @@
+// src/app/dashboard/hospital/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import { SmartDisplay } from "@/components/SmartDisplay";
 import { 
-  Skull, HeartPulse, Stethoscope, Trash2, Activity, ShieldAlert, 
+  HeartPulse, Stethoscope, Activity, ShieldAlert, 
   Thermometer, Database, CheckCircle2, XCircle, ExternalLink, Check, 
   ChevronLeft, FolderOpen, AlertTriangle
 } from "lucide-react";
@@ -46,6 +47,7 @@ export default function TheHospital() {
           const qData = await qRes.json();
           const sData = await sRes.json();
           
+          // Extracts the flattened L1 cache payload correctly
           const extractedMistakes = Array.isArray(qData) ? qData : (Array.isArray(qData?.data) ? qData.data : []);
           setMistakes(extractedMistakes);
           setStats(sData || { stats: [], total_subjects_in_hospital: 0 });
@@ -64,11 +66,16 @@ export default function TheHospital() {
 
   // --- Discharge Action ---
   const handleDischarge = async (id: string) => {
+    // Optimistic UI Update for instant feedback
     setMistakes(prev => prev.filter(m => m.question_id !== id));
+    
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_CORTEX_API_URL}/api/hospital/discharge/${id}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_CORTEX_API_URL}/api/hospital/discharge/${id}`, {
         method: 'DELETE'
       });
+      if (!res.ok) {
+        throw new Error("Failed to delete from DB");
+      }
     } catch (error) {
       console.error("Discharge failed:", error);
     }
@@ -118,11 +125,11 @@ export default function TheHospital() {
         <div className="flex gap-4">
           <div className="bg-zinc-900/40 border border-zinc-800/80 p-5 rounded-2xl text-right min-w-[140px] shadow-xl">
             <p className="text-[10px] font-black text-zinc-500 uppercase mb-1 tracking-widest">Total Patients</p>
-            <p className="text-3xl font-black text-rose-500 font-mono">{safeMistakes.length}</p>
+            <p className="text-3xl font-black text-rose-500 font-mono drop-shadow-[0_0_8px_rgba(244,63,94,0.3)]">{safeMistakes.length}</p>
           </div>
           <div className="bg-zinc-900/40 border border-zinc-800/80 p-5 rounded-2xl text-right min-w-[140px] shadow-xl">
             <p className="text-[10px] font-black text-zinc-500 uppercase mb-1 tracking-widest">Critical Wards</p>
-            <p className="text-3xl font-black text-amber-500 font-mono">{stats?.total_subjects_in_hospital || 0}</p>
+            <p className="text-3xl font-black text-amber-500 font-mono drop-shadow-[0_0_8px_rgba(245,158,11,0.3)]">{stats?.total_subjects_in_hospital || 0}</p>
           </div>
         </div>
       </header>
@@ -136,8 +143,8 @@ export default function TheHospital() {
           </div>
 
           {isHospitalEmpty ? (
-            <div className="p-20 text-center border-2 border-zinc-800 border-dashed rounded-3xl bg-zinc-900/20">
-              <ShieldAlert className="w-16 h-16 text-emerald-500/40 mx-auto mb-6" />
+            <div className="p-20 text-center border-2 border-zinc-800 border-dashed rounded-3xl bg-zinc-900/20 shadow-inner">
+              <ShieldAlert className="w-16 h-16 text-emerald-500/60 mx-auto mb-6 drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]" />
               <h2 className="text-2xl font-black text-zinc-300 tracking-tight uppercase">HOSPITAL CLEAR</h2>
               <p className="text-sm text-zinc-500 mt-2 font-medium">No critical weaknesses detected across the entire database.</p>
             </div>
@@ -155,17 +162,17 @@ export default function TheHospital() {
                   >
                     <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-bl from-rose-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                     
-                    <div className="flex justify-between items-start mb-6">
-                      <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center group-hover:border-rose-500/40 group-hover:text-rose-400 transition-colors">
+                    <div className="flex justify-between items-start mb-6 relative z-10">
+                      <div className="w-10 h-10 rounded-xl bg-zinc-950 border border-zinc-800 flex items-center justify-center group-hover:border-rose-500/40 group-hover:text-rose-400 transition-colors shadow-inner">
                         <AlertTriangle className="w-5 h-5 text-zinc-600 group-hover:text-rose-500" />
                       </div>
                       <span className="text-2xl font-black font-mono text-rose-500">{liveCount}</span>
                     </div>
                     
-                    <h3 className="text-lg font-bold text-zinc-100 tracking-tight mb-2 group-hover:text-rose-100 transition-colors">
+                    <h3 className="text-lg font-bold text-zinc-100 tracking-tight mb-2 group-hover:text-rose-100 transition-colors relative z-10">
                       {s.subject}
                     </h3>
-                    <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mt-auto pt-4">
+                    <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mt-auto pt-4 relative z-10">
                       Enter Ward <ChevronLeft className="w-3 h-3 inline rotate-180" />
                     </p>
                   </button>
@@ -193,12 +200,12 @@ export default function TheHospital() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-8 bg-zinc-900/30 p-3 rounded-xl border border-zinc-800/50">
+          <div className="flex flex-wrap gap-2 mb-8 bg-zinc-900/30 p-3 rounded-xl border border-zinc-800/50 shadow-inner">
             <button
               onClick={() => setActiveTopic("All")}
               className={cn(
                 "px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all",
-                activeTopic === "All" ? "bg-rose-600 text-white border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]" : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-700"
+                activeTopic === "All" ? "bg-rose-600 text-white border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]" : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:bg-zinc-900"
               )}
             >
               All Topics
@@ -211,12 +218,12 @@ export default function TheHospital() {
                   onClick={() => setActiveTopic(topic)}
                   className={cn(
                     "px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-2",
-                    activeTopic === topic ? "bg-rose-600 text-white border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]" : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-700"
+                    activeTopic === topic ? "bg-rose-600 text-white border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]" : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:bg-zinc-900"
                   )}
                 >
                   {topic}
                   <span className={cn(
-                    "px-1.5 py-0.5 rounded font-mono",
+                    "px-1.5 py-0.5 rounded font-mono shadow-inner",
                     activeTopic === topic ? "bg-rose-950/30 text-rose-100" : "bg-zinc-900 text-zinc-400"
                   )}>
                     {count}
@@ -228,17 +235,22 @@ export default function TheHospital() {
 
           <div className="space-y-12">
             {displayedMistakes.length === 0 ? (
-              <div className="p-20 text-center border-2 border-zinc-800 border-dashed rounded-3xl bg-zinc-900/20">
-                <ShieldAlert className="w-16 h-16 text-emerald-500/40 mx-auto mb-6" />
+              <div className="p-20 text-center border-2 border-zinc-800 border-dashed rounded-3xl bg-zinc-900/20 shadow-inner">
+                <ShieldAlert className="w-16 h-16 text-emerald-500/60 mx-auto mb-6 drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]" />
                 <h2 className="text-2xl font-black text-zinc-300 tracking-tight uppercase">WARD CLEAR</h2>
                 <p className="text-sm text-zinc-500 mt-2 font-medium">All patients in this section have been discharged.</p>
               </div>
             ) : (
               displayedMistakes.map((m) => {
-                const isBlank = !m.user_selected_keys || m.user_selected_keys.length === 0;
+                // Safeguard against malformed data arrays
+                const userKeys = Array.isArray(m.user_selected_keys) ? m.user_selected_keys : [];
+                const correctKeys = Array.isArray(m.correct_keys) ? m.correct_keys : [];
+                const isBlank = userKeys.length === 0;
 
                 return (
                   <div key={m.question_id} className="group bg-zinc-900/40 border border-zinc-800/80 rounded-2xl overflow-hidden hover:border-rose-500/50 transition-all duration-300 shadow-xl">
+                    
+                    {/* Header */}
                     <div className="p-6 bg-zinc-950/60 border-b border-zinc-800/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="flex items-center gap-5">
                         <div className="w-12 h-12 rounded-xl bg-rose-950/50 border border-rose-500/30 flex items-center justify-center shadow-inner">
@@ -252,10 +264,16 @@ export default function TheHospital() {
                                 {m.question_type}
                               </span>
                             )}
+                            {/* SYNC UPGRADE: Unanswered badge from Report Page */}
+                            {isBlank && (
+                              <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-950/50 border border-amber-500/30 text-amber-500">
+                                Unanswered
+                              </span>
+                            )}
                           </h3>
                           <div className="flex items-center gap-3 mt-1.5">
-                            <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">{m.topic}</span>
-                            <span className="text-[10px] font-mono text-rose-400 font-bold uppercase bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded flex items-center gap-1.5">
+                            <span className="text-[10px] font-mono text-zinc-400 font-bold uppercase bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded shadow-inner">{m.topic}</span>
+                            <span className="text-[10px] font-mono text-rose-400 font-bold uppercase bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded shadow-inner flex items-center gap-1.5">
                               <Activity className="w-3 h-3" /> Failed {m.failure_count} Times
                             </span>
                           </div>
@@ -272,27 +290,32 @@ export default function TheHospital() {
                       </div>
                     </div>
 
+                    {/* Body */}
                     <div className="p-6 md:p-8 bg-zinc-950/40">
                       {m.question_html ? (
                         <SmartDisplay html={m.question_html} className="text-base mb-8" />
                       ) : (
                         <div className="bg-zinc-900/50 p-6 rounded-xl border border-zinc-800/50 flex items-center gap-3 text-zinc-500 text-sm font-mono shadow-inner mb-8">
-                          <Database className="w-5 h-5" /> Raw HTML missing from patient record. Reference ID: {m.question_id}
+                          <Database className="w-5 h-5 text-rose-500/70" /> Raw HTML missing from patient record. Reference ID: {m.question_id}
                         </div>
                       )}
 
+                      {/* Answer Comparison Block */}
                       {m.question_type === "NAT" ? (
-                        <div className="grid md:grid-cols-2 gap-6 bg-zinc-900/50 p-6 rounded-xl border border-zinc-800 mb-6">
+                        <div className="grid md:grid-cols-2 gap-6 bg-zinc-900/50 p-6 rounded-xl border border-zinc-800 mb-6 shadow-inner">
                           <div className="space-y-2">
                             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Your Incorrect Input</p>
-                            <div className="p-4 rounded-lg border font-mono text-lg font-bold shadow-inner bg-rose-500/10 border-rose-500/30 text-rose-400">
-                              {isBlank ? "BLANK" : m.user_selected_keys.join(", ")}
+                            <div className={cn(
+                              "p-4 rounded-lg border font-mono text-lg font-bold shadow-inner",
+                              isBlank ? "bg-amber-500/10 border-amber-500/30 text-amber-400" : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                            )}>
+                              {isBlank ? "— BLANK —" : userKeys.join(", ")}
                             </div>
                           </div>
                           <div className="space-y-2">
                             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Official Range / Key</p>
                             <div className="p-4 rounded-lg border bg-emerald-500/10 border-emerald-500/30 font-mono text-lg font-bold text-emerald-400 shadow-inner">
-                              {m.correct_keys && m.correct_keys.length > 0 ? m.correct_keys.join(" OR ") : "UNKNOWN"}
+                              {correctKeys.length > 0 ? correctKeys.join(" to ") : "UNKNOWN"}
                             </div>
                           </div>
                         </div>
@@ -300,8 +323,8 @@ export default function TheHospital() {
                         <div className="space-y-3 mb-6">
                           {m.options && m.options.length > 0 ? (
                             m.options.map((opt: any) => {
-                              const isUserSelected = m.user_selected_keys?.includes(opt.label);
-                              const isCorrectKey = m.correct_keys?.includes(opt.label);
+                              const isUserSelected = userKeys.includes(opt.label);
+                              const isCorrectKey = correctKeys.includes(opt.label);
                               const isWrongSelection = isUserSelected && !isCorrectKey;
 
                               return (
@@ -310,8 +333,8 @@ export default function TheHospital() {
                                   className={cn(
                                     "flex items-start p-5 rounded-xl border-2 text-left transition-all group",
                                     isCorrectKey ? "bg-emerald-950/20 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.1)] ring-1 ring-emerald-500/50" :
-                                    isWrongSelection ? "bg-rose-950/10 border-rose-500/40 opacity-70" :
-                                    "bg-zinc-900/30 border-zinc-800/80 opacity-50"
+                                    isWrongSelection ? "bg-rose-950/10 border-rose-500/40" :
+                                    "bg-zinc-900/30 border-zinc-800/80"
                                   )}
                                 >
                                   <div className={cn(
@@ -322,26 +345,27 @@ export default function TheHospital() {
                                   )}>
                                     {isCorrectKey ? <Check className="w-5 h-5" /> : isWrongSelection ? <XCircle className="w-5 h-5" /> : opt.label}
                                   </div>
-                                  <div className="ml-5">
+                                  <div className={cn("ml-5", !isCorrectKey && !isWrongSelection && "opacity-70")}>
                                     <SmartDisplay html={opt.html} className="text-[15px] [&>p]:m-0" />
                                   </div>
                                 </div>
                               );
                             })
                           ) : (
-                            <div className="bg-zinc-900/50 p-6 rounded-xl border border-zinc-800/50 text-zinc-500 text-sm font-mono text-center mb-6">
+                            <div className="bg-zinc-900/50 p-6 rounded-xl border border-zinc-800/50 text-zinc-500 text-sm font-mono text-center mb-6 shadow-inner">
                               Option payload missing from database entry.
                             </div>
                           )}
                         </div>
                       )}
                       
+                      {/* Solution Link */}
                       {m.solution_url && (
-                        <div className="flex justify-end border-t border-zinc-800/60 pt-4">
+                        <div className="flex justify-end border-t border-zinc-800/60 pt-6">
                           <a 
                             href={m.solution_url} 
                             target="_blank" rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-[11px] font-black tracking-widest uppercase text-cyan-400 hover:text-cyan-300 bg-cyan-950/20 hover:bg-cyan-950/40 border border-cyan-500/20 px-5 py-2.5 rounded-lg transition-all"
+                            className="flex items-center gap-2 text-[11px] font-black tracking-widest uppercase text-cyan-400 hover:text-cyan-300 bg-cyan-950/20 hover:bg-cyan-950/40 border border-cyan-500/20 px-5 py-2.5 rounded-lg transition-all shadow-inner hover:shadow-[0_0_15px_rgba(34,211,238,0.2)]"
                           >
                             View Official Solution <ExternalLink className="w-4 h-4" />
                           </a>
@@ -349,6 +373,7 @@ export default function TheHospital() {
                       )}
                     </div>
 
+                    {/* Footer Actions */}
                     <div className="p-5 bg-zinc-950 border-t border-zinc-800/60 flex justify-end">
                       <button 
                         onClick={() => handleDischarge(m.question_id)}
@@ -357,6 +382,7 @@ export default function TheHospital() {
                         <CheckCircle2 className="w-4 h-4" /> Discharge Patient
                       </button>
                     </div>
+
                   </div>
                 );
               })

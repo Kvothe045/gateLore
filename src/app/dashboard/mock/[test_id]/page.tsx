@@ -1,8 +1,9 @@
+// src/app/dashboard/mock/[test_id]/page.tsx
 "use client";
 
 import { useEffect, useState, use } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Clock, Calculator, ChevronRight, Send, AlertTriangle, Loader2, Maximize } from "lucide-react";
+import { Clock, Calculator, Send, AlertTriangle, Loader2, Maximize, Info, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SmartDisplay } from "@/components/SmartDisplay";
 
@@ -11,8 +12,8 @@ type Question = {
   id: string;
   question_number: number;
   question_html: string;
-  question_type: "MCQ" | "MSQ" | "NAT";
-  options: { label: string; html: string }[];
+  question_type: "MCQ" | "MSQ" | "NAT" | string;
+  options?: { label: string; html: string }[];
   subject: string;
   topic: string;
   marks: number; 
@@ -130,43 +131,69 @@ export default function MockCombatArena({ params }: { params: Promise<{ test_id:
 
   const currentQ = questions[currentIndex];
 
+  // --- Helper: Check if question truly has a valid answer ---
+  const getHasAnswer = (qId: string) => {
+    const ans = answers[qId] || [];
+    return ans.some(a => a.trim() !== "");
+  };
+
   // --- Input Handlers ---
   const handleOptionToggle = (val: string) => {
     if (!currentQ) return;
     const currentAns = answers[currentQ.id] || [];
     
-    if (currentQ.question_type === "MCQ") {
-      setAnswers({ ...answers, [currentQ.id]: [val] }); // Replace for MCQ
+    if (currentQ.question_type === "NAT") {
+      // If user backspaces the input, completely remove the answer key
+      if (val.trim() === "") {
+        const newAnswers = { ...answers };
+        delete newAnswers[currentQ.id];
+        setAnswers(newAnswers);
+      } else {
+        setAnswers({ ...answers, [currentQ.id]: [val] });
+      }
     } else if (currentQ.question_type === "MSQ") {
       if (currentAns.includes(val)) {
-        setAnswers({ ...answers, [currentQ.id]: currentAns.filter(v => v !== val) }); // Toggle for MSQ
+        setAnswers({ ...answers, [currentQ.id]: currentAns.filter(v => v !== val) }); 
       } else {
-        setAnswers({ ...answers, [currentQ.id]: [...currentAns, val] }); // Append for MSQ
+        setAnswers({ ...answers, [currentQ.id]: [...currentAns, val] }); 
       }
     } else {
-      // NAT Input
+      // MCQ Input Strict Replace
       setAnswers({ ...answers, [currentQ.id]: [val] });
     }
   };
 
   // --- Navigation Handlers ---
   const changeQuestion = (newIndex: number) => {
-    setQStatus(prev => ({
-      ...prev,
-      [currentQ.id]: prev[currentQ.id] === "not_visited" ? "not_answered" : prev[currentQ.id],
-      [questions[newIndex].id]: prev[questions[newIndex].id] === "not_visited" ? "not_answered" : prev[questions[newIndex].id]
-    }));
+    setQStatus(prev => {
+      const currentStatus = prev[currentQ.id];
+      const hasAnswer = getHasAnswer(currentQ.id);
+
+      // Auto-save logic if user jumps via palette without clicking "Save & Next"
+      let updatedCurrentStatus = currentStatus;
+      if (currentStatus === "not_visited" || currentStatus === "not_answered") {
+        updatedCurrentStatus = hasAnswer ? "answered" : "not_answered";
+      }
+
+      const targetStatus = prev[questions[newIndex].id] === "not_visited" ? "not_answered" : prev[questions[newIndex].id];
+
+      return {
+        ...prev,
+        [currentQ.id]: updatedCurrentStatus,
+        [questions[newIndex].id]: targetStatus
+      };
+    });
     setCurrentIndex(newIndex);
   };
 
   const handleSaveAndNext = () => {
-    const hasAnswer = (answers[currentQ.id] || []).length > 0;
+    const hasAnswer = getHasAnswer(currentQ.id);
     setQStatus(prev => ({ ...prev, [currentQ.id]: hasAnswer ? "answered" : "not_answered" }));
     if (currentIndex < questions.length - 1) changeQuestion(currentIndex + 1);
   };
 
   const handleMarkAndNext = () => {
-    const hasAnswer = (answers[currentQ.id] || []).length > 0;
+    const hasAnswer = getHasAnswer(currentQ.id);
     setQStatus(prev => ({ ...prev, [currentQ.id]: hasAnswer ? "answered_marked" : "marked" }));
     if (currentIndex < questions.length - 1) changeQuestion(currentIndex + 1);
   };
@@ -175,19 +202,27 @@ export default function MockCombatArena({ params }: { params: Promise<{ test_id:
     const newAnswers = { ...answers };
     delete newAnswers[currentQ.id];
     setAnswers(newAnswers);
+
+    // Instantly downgrade the color palette state
+    setQStatus(prev => {
+      const currentStatus = prev[currentQ.id];
+      let newStatus = currentStatus;
+      if (currentStatus === "answered") newStatus = "not_answered";
+      if (currentStatus === "answered_marked") newStatus = "marked";
+      return { ...prev, [currentQ.id]: newStatus };
+    });
   };
 
   // --- Submission Logic ---
   const submitTest = async () => {
     setSubmitting(true);
     
-    // CRITICAL FIX: Map ONLY over the exact `questions` array currently loaded.
-    // This safely captures blank/skipped answers without sending ghost data.
+    // Maps over the strictly fetched questions, safely avoiding ghost answers
     const submissionPayload = {
       test_type: searchParams.get("mode") === "CUSTOM" ? "Custom Mock" : "Full Mock",
       answers: questions.map((q) => ({
         question_id: q.id,
-        selected_keys: answers[q.id] || [] // Empty array if untouched
+        selected_keys: answers[q.id] || [] 
       }))
     };
 
@@ -200,11 +235,10 @@ export default function MockCombatArena({ params }: { params: Promise<{ test_id:
       
       if (res.ok) {
         const result = await res.json();
-        // Guard check: Ensure we actually got a valid ID back from the backend
         if (result && result.test_id && result.test_id !== "undefined") {
            router.push(`/dashboard/mock/report/${result.test_id}`);
         } else {
-           alert("Test submitted, but database failed to generate a report ID. Check your archives later.");
+           alert("Test submitted, but database failed to generate a report ID.");
            router.push("/dashboard/mock/history");
         }
       } else {
@@ -253,7 +287,7 @@ export default function MockCombatArena({ params }: { params: Promise<{ test_id:
     <div className="flex flex-col h-screen w-full bg-zinc-950 text-zinc-200 font-sans overflow-hidden">
       
       {/* TOP HUD HEADER */}
-      <header className="flex items-center justify-between px-6 py-4 bg-zinc-900 border-b border-zinc-800">
+      <header className="flex items-center justify-between px-6 py-4 bg-zinc-900 border-b border-zinc-800 shadow-sm z-20">
         <div>
           <h1 className="text-xl font-black text-zinc-100 tracking-tight">CORTEX<span className="text-cyan-500">.CBT</span></h1>
           <p className="text-[10px] text-cyan-500 font-mono mt-1 tracking-widest uppercase">
@@ -270,13 +304,13 @@ export default function MockCombatArena({ params }: { params: Promise<{ test_id:
             <Maximize className="w-4 h-4" />
           </button>
 
-          <button className="flex items-center gap-2 px-4 py-2 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-md text-sm font-medium transition-colors shadow-inner">
+          <button className="hidden sm:flex items-center gap-2 px-4 py-2 bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 rounded-md text-sm font-medium transition-colors shadow-inner">
             <Calculator className="w-4 h-4 text-emerald-400" /> Calculator
           </button>
           
           <div className="flex items-center gap-3 bg-zinc-950 px-5 py-2.5 rounded-md border border-zinc-800 shadow-inner">
-            <Clock className={cn("w-5 h-5", timeLeft < 300 ? "text-rose-500 animate-bounce" : "text-cyan-500")} />
-            <span className={cn("font-mono text-2xl font-bold", timeLeft < 300 ? "text-rose-500" : "text-zinc-100")}>
+            <Clock className={cn("w-5 h-5", timeLeft < 300 ? "text-rose-500 animate-pulse drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]" : "text-cyan-500")} />
+            <span className={cn("font-mono text-2xl font-bold tracking-tight", timeLeft < 300 ? "text-rose-500" : "text-zinc-100")}>
               {formatTime(timeLeft)}
             </span>
           </div>
@@ -288,15 +322,22 @@ export default function MockCombatArena({ params }: { params: Promise<{ test_id:
         {/* LEFT PANE: Main Display */}
         <div className="flex-1 flex flex-col border-r border-zinc-800 bg-zinc-950/50">
           
-          <div className="flex-1 overflow-y-auto p-8 space-y-8 max-w-5xl mx-auto w-full">
+          <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 max-w-5xl mx-auto w-full custom-scrollbar">
             <div className="flex justify-between items-center pb-4 border-b border-zinc-800/80">
-              <span className="text-lg font-bold text-zinc-100">Question {currentIndex + 1}</span>
-              <span className="px-3 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs uppercase tracking-widest font-bold text-zinc-300">
+              <span className="text-lg font-bold text-zinc-100 flex items-center gap-3">
+                Question {currentIndex + 1}
+                {currentQ.question_type === "MSQ" && (
+                  <span className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-purple-400 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20 shadow-inner">
+                    <Info className="w-3.5 h-3.5" /> Multiple Correct Possible
+                  </span>
+                )}
+              </span>
+              <span className="px-3 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs uppercase tracking-widest font-black text-zinc-300 shadow-inner">
                 {currentQ.question_type}
               </span>
             </div>
             
-            <SmartDisplay html={currentQ.question_html} className="text-lg leading-relaxed" />
+            <SmartDisplay html={currentQ.question_html} className="text-base md:text-lg leading-relaxed text-zinc-300" />
 
             {/* Answer Region */}
             <div className="space-y-4 pt-4">
@@ -312,33 +353,39 @@ export default function MockCombatArena({ params }: { params: Promise<{ test_id:
                 </div>
               ) : (
                 <div className="grid gap-3">
-                  {currentQ.options.map((opt) => {
-                    const isSelected = (answers[currentQ.id] || []).includes(opt.label);
-                    return (
-                      <div 
-                        key={opt.label}
-                        onClick={() => handleOptionToggle(opt.label)}
-                        className={cn(
-                          "flex items-start p-5 rounded-xl border-2 cursor-pointer transition-all duration-200 group",
-                          isSelected 
-                            ? "bg-cyan-950/30 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.15)]" 
-                            : "bg-zinc-900/40 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/80"
-                        )}
-                      >
-                        <div className={cn(
-                          "flex-shrink-0 w-8 h-8 mt-0.5 flex items-center justify-center rounded border-2 font-black text-sm transition-colors",
-                          isSelected 
-                            ? "bg-cyan-500 border-cyan-500 text-zinc-950" 
-                            : "bg-zinc-950 border-zinc-700 text-zinc-500 group-hover:border-zinc-500"
-                        )}>
-                          {opt.label}
+                  {currentQ.options && currentQ.options.length > 0 ? (
+                    currentQ.options.map((opt) => {
+                      const isSelected = (answers[currentQ.id] || []).includes(opt.label);
+                      return (
+                        <div 
+                          key={opt.label}
+                          onClick={() => handleOptionToggle(opt.label)}
+                          className={cn(
+                            "flex items-start p-5 rounded-xl border-2 cursor-pointer transition-all duration-200 group",
+                            isSelected 
+                              ? "bg-cyan-950/30 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.15)] ring-1 ring-cyan-500/50" 
+                              : "bg-zinc-900/40 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/80"
+                          )}
+                        >
+                          <div className={cn(
+                            "flex-shrink-0 w-8 h-8 mt-0.5 flex items-center justify-center rounded border-2 font-black text-sm transition-colors shadow-sm",
+                            isSelected 
+                              ? "bg-cyan-500 border-cyan-500 text-zinc-950" 
+                              : "bg-zinc-950 border-zinc-700 text-zinc-500 group-hover:border-zinc-500"
+                          )}>
+                            {opt.label}
+                          </div>
+                          <div className="ml-5 text-[15px] text-zinc-300">
+                            <SmartDisplay html={opt.html} className="[&>p]:m-0" />
+                          </div>
                         </div>
-                        <div className="ml-5">
-                          <SmartDisplay html={opt.html} className="[&>p]:m-0" />
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  ) : (
+                    <div className="bg-zinc-900/50 p-6 rounded-xl border border-zinc-800/50 flex items-center justify-center gap-3 text-zinc-500 text-sm font-mono shadow-inner">
+                      <Database className="w-5 h-5 text-rose-500" /> Option payload missing from database.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -347,28 +394,28 @@ export default function MockCombatArena({ params }: { params: Promise<{ test_id:
           {/* Action Hub Footer */}
           <div className="flex items-center justify-between p-5 bg-zinc-900 border-t border-zinc-800 shadow-[0_-10px_30px_rgba(0,0,0,0.3)] z-10">
             <div className="flex gap-4">
-              <button onClick={handleMarkAndNext} className="px-6 py-3 bg-zinc-950 border border-zinc-700 hover:border-purple-500 hover:text-purple-400 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors shadow-inner">
+              <button onClick={handleMarkAndNext} className="px-5 md:px-6 py-3 bg-zinc-950 border border-zinc-700 hover:border-purple-500 hover:text-purple-400 rounded-lg text-[10px] md:text-xs font-bold uppercase tracking-widest transition-colors shadow-inner whitespace-nowrap">
                 Mark & Next
               </button>
-              <button onClick={handleClearResponse} className="px-6 py-3 bg-zinc-950 border border-zinc-800 hover:border-rose-500 hover:text-rose-400 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors shadow-inner">
-                Clear Selection
+              <button onClick={handleClearResponse} className="px-5 md:px-6 py-3 bg-zinc-950 border border-zinc-800 hover:border-rose-500 hover:text-rose-400 rounded-lg text-[10px] md:text-xs font-bold uppercase tracking-widest transition-colors shadow-inner whitespace-nowrap">
+                Clear 
               </button>
             </div>
             
-            <button onClick={handleSaveAndNext} className="px-10 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-black uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(8,145,178,0.3)] hover:shadow-[0_0_25px_rgba(8,145,178,0.5)]">
+            <button onClick={handleSaveAndNext} className="px-8 md:px-10 py-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-[10px] md:text-xs font-black uppercase tracking-widest transition-all shadow-[0_0_15px_rgba(8,145,178,0.3)] hover:shadow-[0_0_25px_rgba(8,145,178,0.5)] whitespace-nowrap">
               Save & Next
             </button>
           </div>
         </div>
 
         {/* RIGHT PANE: Sidebar Palette */}
-        <div className="w-80 bg-zinc-900 flex flex-col z-20 border-l border-zinc-800 shadow-[-10px_0_30px_rgba(0,0,0,0.3)]">
-          <div className="p-5 border-b border-zinc-800 bg-zinc-950/50">
+        <div className="hidden lg:flex w-80 bg-zinc-900 flex-col z-20 border-l border-zinc-800 shadow-[-10px_0_30px_rgba(0,0,0,0.3)]">
+          <div className="p-5 border-b border-zinc-800 bg-zinc-950/50 shadow-inner">
             <p className="text-base font-black text-zinc-100 uppercase tracking-widest">KIRA</p>
             <p className="text-[10px] text-cyan-500 font-mono tracking-tighter">GATE CSE SPECIALIST</p>
           </div>
 
-          <div className="p-5 grid grid-cols-2 gap-y-3 gap-x-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
+          <div className="p-5 grid grid-cols-2 gap-y-3 gap-x-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b border-zinc-800 shadow-sm">
              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-zinc-200 shadow-sm" /> Visited</div>
              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]" /> Missing</div>
              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]" /> Saved</div>
@@ -381,10 +428,10 @@ export default function MockCombatArena({ params }: { params: Promise<{ test_id:
                 const status = qStatus[q.id] || "not_visited";
                 let bgClass = "bg-zinc-200 text-zinc-900 border border-zinc-300";
                 
-                if (status === "not_answered") bgClass = "bg-rose-500 text-white border-rose-600";
-                if (status === "answered") bgClass = "bg-emerald-500 text-white border-emerald-600";
-                if (status === "marked") bgClass = "bg-purple-500 text-white border-purple-600";
-                if (status === "answered_marked") bgClass = "bg-purple-500 text-white border-2 border-emerald-400 relative";
+                if (status === "not_answered") bgClass = "bg-rose-500 text-white border-rose-600 shadow-[0_0_10px_rgba(244,63,94,0.2)]";
+                if (status === "answered") bgClass = "bg-emerald-500 text-white border-emerald-600 shadow-[0_0_10px_rgba(16,185,129,0.2)]";
+                if (status === "marked") bgClass = "bg-purple-500 text-white border-purple-600 shadow-[0_0_10px_rgba(168,85,247,0.2)]";
+                if (status === "answered_marked") bgClass = "bg-purple-500 text-white border-2 border-emerald-400 relative shadow-[0_0_10px_rgba(168,85,247,0.3)]";
 
                 return (
                   <button

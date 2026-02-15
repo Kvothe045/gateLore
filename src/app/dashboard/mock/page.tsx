@@ -55,28 +55,51 @@ export default function MockConfigurationHub() {
   };
 
   const handleLaunch = () => {
-    // If topics are selected, the backend needs the parent subjects passed too to avoid empty intersections
-    const subjectsToPass = new Set([...selectedSubjects]);
-    if (metadata) {
-      selectedTopics.forEach(topic => {
-        Object.entries(metadata).forEach(([subj, data]) => {
-          if (topic in data.topics) subjectsToPass.add(subj);
-        });
-      });
-    }
+    const params = new URLSearchParams();
+    params.append("mode", mode);
 
-    const params = new URLSearchParams({
-      mode,
-      count: questionCount.toString(),
-      time: timeLimit.toString(),
-      types: selectedTypes.join(","),
-      subjects: Array.from(subjectsToPass).join(","),
-      topics: selectedTopics.join(",")
-    });
+    if (mode === "FULL") {
+      // For FULL mode, we force strict GATE constraints and ignore custom filters
+      params.append("count", "65");
+      params.append("time", "180");
+    } else {
+      // For CUSTOM mode, append numerical constraints
+      params.append("count", questionCount.toString());
+      params.append("time", timeLimit.toString());
+      
+      // Only append array parameters if they actually have content to prevent '[""]' backend bugs
+      if (selectedTypes.length > 0) {
+        params.append("types", selectedTypes.join(","));
+      }
+
+      // Smart Parent-Subject resolution
+      const subjectsToPass = new Set([...selectedSubjects]);
+      if (metadata) {
+        selectedTopics.forEach(topic => {
+          Object.entries(metadata).forEach(([subj, data]) => {
+            if (topic in data.topics) subjectsToPass.add(subj);
+          });
+        });
+      }
+
+      if (subjectsToPass.size > 0) {
+        params.append("subjects", Array.from(subjectsToPass).join(","));
+      }
+      
+      if (selectedTopics.length > 0) {
+        params.append("topics", selectedTopics.join(","));
+      }
+    }
     
     const sessionId = "session_" + Math.random().toString(36).substring(7);
     router.push(`/dashboard/mock/${sessionId}?${params.toString()}`);
   };
+
+  // Launch Validation Constraints
+  const isLaunchDisabled = mode === "CUSTOM" && (
+    (selectedSubjects.length === 0 && selectedTopics.length === 0) || 
+    selectedTypes.length === 0
+  );
 
   if (loading) {
     return (
@@ -315,7 +338,7 @@ export default function MockConfigurationHub() {
                     <span className="text-cyan-400">{timeLimit}</span>
                   </label>
                   <input 
-                    type="range" min="15" max="180" step="15"
+                    type="range" min="10" max="240" step="5"
                     value={timeLimit}
                     onChange={(e) => setTimeLimit(Number(e.target.value))}
                     className="w-full accent-cyan-500"
@@ -332,7 +355,7 @@ export default function MockConfigurationHub() {
       <div className="fixed bottom-0 left-0 md:left-64 right-0 p-5 bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-800/80 flex justify-end z-40">
         <button 
           onClick={handleLaunch}
-          disabled={mode === "CUSTOM" && selectedSubjects.length === 0 && selectedTopics.length === 0}
+          disabled={isLaunchDisabled}
           className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-10 py-3.5 rounded-lg font-black tracking-widest uppercase text-sm flex items-center gap-3 transition-all shadow-[0_0_20px_rgba(8,145,178,0.3)] hover:shadow-[0_0_30px_rgba(8,145,178,0.5)] hover:-translate-y-0.5"
         >
           Initialize Combat Arena <Play className="w-4 h-4 fill-current" />
