@@ -4,13 +4,12 @@ import { useRouter } from "next/navigation";
 import { 
   Menu, X, ChevronLeft, CheckCircle2, 
   Play, Download, FileText, Smartphone,
-  ShieldCheck, Terminal
+  ShieldCheck, Terminal, FastForward, XCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import VideoManager from "@/components/video/VideoManager";
 
 // --- CONFIGURATION ---
-// DIRECT VM CONNECTION (Bypassing Vercel/Next.js Proxy)
 const VM_API_URL = "https://vlogs.gaterealty.tech"; 
 
 export default function SubjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -22,6 +21,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   const [subjectData, setSubjectData] = useState<any>(null);
   const [files, setFiles] = useState<any[]>([]);
   const [watched, setWatched] = useState<string[]>([]);
+  const [lastPlayedId, setLastPlayedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // UI State
@@ -31,14 +31,25 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
   const [isSidebarOpen, setIsSidebarOpen] = useState(true); 
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
+  // Auto-play State
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [nextVideoToPlay, setNextVideoToPlay] = useState<any>(null);
+
+  const videos = files.filter(f => f.type === 'video');
+  const resources = files.filter(f => f.type !== 'video');
+  const watchedCount = videos.filter(v => watched.includes(String(v.id))).length;
+  const progressPercent = videos.length > 0 ? Math.round((watchedCount / videos.length) * 100) : 0;
+
   // --- FETCHING ---
   useEffect(() => {
-    const stored = localStorage.getItem(`watched_${id}`);
-    if (stored) setWatched(JSON.parse(stored));
+    const storedWatched = localStorage.getItem(`watched_${id}`);
+    if (storedWatched) setWatched(JSON.parse(storedWatched));
+
+    const storedLastPlayed = localStorage.getItem(`lastPlayed_${id}`);
+    if (storedLastPlayed) setLastPlayedId(storedLastPlayed);
 
     const fetchData = async () => {
         try {
-            // We can still use the VM URL for metadata fetching too, it's faster.
             const statsRes = await fetch(`${VM_API_URL}/admin/system-stats`, {
                 headers: { "x-api-key": process.env.NEXT_PUBLIC_AUTH_TOKEN! }
             });
@@ -63,22 +74,41 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     if (window.innerWidth < 768) setIsSidebarOpen(false);
   }, [id, subjectId]);
 
+  // --- AUTO-PLAY TIMER ---
+  useEffect(() => {
+    if (countdown === null) return;
+    if (countdown === 0) {
+        if (nextVideoToPlay) playVideo(nextVideoToPlay);
+        setCountdown(null);
+        setNextVideoToPlay(null);
+        return;
+    }
+
+    const timer = setTimeout(() => {
+        setCountdown(prev => prev! - 1);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [countdown, nextVideoToPlay]);
+
   // --- ACTIONS ---
   const playVideo = (file: any) => {
+    // Clear any active countdown if the user manually clicks a video
+    setCountdown(null);
+    setNextVideoToPlay(null);
+
     setActiveVideo(file);
     setIsMobileSidebarOpen(false);
     
-    // 1. DIRECT STREAMING URL construction
-    // We attach the API key directly to the URL parameters.
-    // This allows the browser to send Range Headers directly to your VM.
+    // Remember last played
+    setLastPlayedId(String(file.id));
+    localStorage.setItem(`lastPlayed_${id}`, String(file.id));
+    
     const apiKey = process.env.NEXT_PUBLIC_AUTH_TOKEN || "f8c2d692f4b74da1386ee5173e111564";
-    
-    // Encode the topic name to handle spaces/special chars safely
-    const topicParam = encodeURIComponent(subjectData.name);
-    
+    const topicParam = encodeURIComponent(subjectData?.name || "");
     const streamUrl = `${VM_API_URL}/stream/${file.id}?topic_id=${id}&topic_name=${topicParam}&api_key=${apiKey}`;
     
-    console.log("Streaming from:", streamUrl); // Debugging
+    console.log("Streaming from:", streamUrl);
     setVideoSrc(streamUrl);
   };
 
@@ -91,12 +121,19 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     }
   };
 
-  // --- RENDER HELPERS ---
-  const videos = files.filter(f => f.type === 'video');
-  const resources = files.filter(f => f.type !== 'video');
-  const watchedCount = videos.filter(v => watched.includes(String(v.id))).length;
-  const progressPercent = videos.length > 0 ? Math.round((watchedCount / videos.length) * 100) : 0;
+  const handleVideoEnded = () => {
+    markWatched();
 
+    // Find next video
+    const currentIndex = videos.findIndex(v => v.id === activeVideo.id);
+    if (currentIndex !== -1 && currentIndex + 1 < videos.length) {
+        const nextVid = videos[currentIndex + 1];
+        setNextVideoToPlay(nextVid);
+        setCountdown(3); // Start 3 second countdown
+    }
+  };
+
+  // --- RENDER HELPERS ---
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-zinc-950/95 backdrop-blur-xl md:bg-zinc-950 border-r border-white/5">
         <div className="p-4 border-b border-white/5 flex items-center justify-between">
@@ -144,12 +181,12 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
     </div>
   );
 
+  const lastPlayedVideo = videos.find(v => String(v.id) === lastPlayedId);
+
   return (
     <div className="h-screen bg-black text-slate-200 flex flex-col font-sans overflow-hidden">
         {/* HEADER */}
         <header className="h-20 bg-zinc-950 border-b border-white/5 flex items-center px-6 shrink-0 z-50 justify-between gap-4">
-            
-            {/* LEFT: Navigation Controls */}
             <div className="flex items-center gap-4">
                 <button 
                     onClick={() => {
@@ -161,10 +198,7 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                 >
                     <Menu className="w-5 h-5 text-indigo-400" />
                 </button>
-                
-                {/* Visual Divider */}
                 <div className="h-8 w-px bg-white/10 hidden md:block"></div>
-                
                 <button onClick={() => router.push("/")} className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition-colors group">
                     <div className="p-1.5 rounded-full group-hover:bg-white/10 transition-colors">
                         <ChevronLeft className="w-5 h-5" />
@@ -173,13 +207,10 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                 </button>
             </div>
 
-            {/* CENTER: Title & Progress Bar */}
             <div className="flex-1 max-w-xl mx-auto flex flex-col items-center justify-center">
                 <h1 className="text-sm md:text-base font-black text-white uppercase tracking-tight truncate w-full text-center">
                     {subjectData ? subjectData.name : "..."}
                 </h1>
-                
-                {/* THE RESTORED PROGRESS BAR */}
                 <div className="w-full h-1.5 bg-zinc-800 rounded-full mt-2 overflow-hidden relative border border-white/5">
                     <div 
                         className="h-full bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-500 shadow-[0_0_15px_rgba(99,102,241,0.6)] transition-all duration-700 ease-out" 
@@ -188,7 +219,6 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                 </div>
             </div>
 
-            {/* RIGHT: Big Stats */}
             <div className="text-right hidden md:block pl-6">
                 <div className="flex items-baseline justify-end gap-2">
                     <span className="text-3xl font-black text-white tracking-tighter shadow-indigo-500/50 drop-shadow-lg">
@@ -233,24 +263,63 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
             {/* MAIN AREA */}
             <main className="flex-1 bg-black relative flex items-center justify-center">
                 {activeVideo && videoSrc ? (
-                    <VideoManager 
-                        videoSrc={videoSrc} 
-                        file={activeVideo} 
-                        onVideoEnded={markWatched}
-                    />
+                    <>
+                        <VideoManager 
+                            videoSrc={videoSrc} 
+                            file={activeVideo} 
+                            onVideoEnded={handleVideoEnded}
+                        />
+
+                        {/* COUNTDOWN OVERLAY */}
+                        {countdown !== null && (
+                            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm transition-all">
+                                <div className="text-center p-8 bg-zinc-950/80 border border-white/10 rounded-2xl shadow-2xl max-w-md w-full mx-4">
+                                    <h2 className="text-slate-300 text-sm font-bold tracking-widest uppercase mb-2">Up Next</h2>
+                                    <p className="text-white text-lg font-medium mb-8 truncate">{nextVideoToPlay?.name?.replace(/\.[^/.]+$/, "")}</p>
+                                    
+                                    <div className="relative w-24 h-24 mx-auto mb-8 flex items-center justify-center">
+                                        <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                                            <circle cx="48" cy="48" r="45" className="stroke-slate-800" strokeWidth="4" fill="none" />
+                                            <circle 
+                                                cx="48" cy="48" r="45" 
+                                                className="stroke-indigo-500 transition-all duration-1000 ease-linear" 
+                                                strokeWidth="4" fill="none" 
+                                                strokeDasharray="283"
+                                                strokeDashoffset={283 - (283 * (countdown / 3))}
+                                            />
+                                        </svg>
+                                        <span className="text-4xl font-black text-white">{countdown}</span>
+                                    </div>
+
+                                    <div className="flex gap-4">
+                                        <button 
+                                            onClick={() => { setCountdown(null); setNextVideoToPlay(null); }}
+                                            className="flex-1 py-3 px-4 bg-white/5 hover:bg-white/10 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            <XCircle className="w-5 h-5" /> Cancel
+                                        </button>
+                                        <button 
+                                            onClick={() => setCountdown(0)}
+                                            className="flex-1 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
+                                        >
+                                            <FastForward className="w-5 h-5" /> Play Now
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </>
                 ) : (
                     // --- IDLE UI ---
                     <div className="w-full h-full flex flex-col items-center justify-center relative overflow-hidden bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-zinc-900/50 via-black to-black">
-                        {/* Background Decor */}
                         <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-50 contrast-150 pointer-events-none"></div>
-                        
+                       
                         <motion.div 
                           initial={{ opacity: 0, y: 20 }} 
                           animate={{ opacity: 1, y: 0 }} 
                           transition={{ duration: 0.8 }}
                           className="relative z-10 max-w-2xl px-6 text-center"
                         >
-                            {/* Animated Rings */}
                             <div className="relative w-32 h-32 mx-auto mb-10">
                                 <motion.div animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute inset-0 rounded-full border border-white/10 border-dashed" />
                                 <motion.div animate={{ rotate: -360 }} transition={{ duration: 30, repeat: Infinity, ease: "linear" }} className="absolute inset-2 rounded-full border border-indigo-500/20 border-dotted" />
@@ -259,11 +328,10 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                                 </div>
                             </div>
 
-                            {/* Subject & Deadline */}
                             <h1 className="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40 tracking-tighter mb-4">
                                 {subjectData ? subjectData.name : "Loading Protocol..."}
                             </h1>
-                           
+                          
                             {subjectData && (
                                 <div className="inline-flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2 rounded-full mb-10 backdrop-blur-md">
                                     <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
@@ -273,22 +341,33 @@ export default function SubjectPage({ params }: { params: Promise<{ id: string }
                                 </div>
                             )}
 
-                            {/* Quote */}
                             <div className="relative border-t border-b border-white/5 py-8 mb-8 bg-black/20">
                                 <p className="text-base md:text-lg text-slate-400 font-light italic leading-relaxed">
                                     "If you don&apos;t put <span className="text-white font-medium">everything you have</span> into achieving your dreams, you will end up <span className="text-white border-b border-indigo-500/50">regretting it</span> in life."
                                 </p>
                             </div>
 
-                            <div className="flex flex-col md:flex-row items-center justify-center gap-4">
+                            <div className="flex flex-col items-center justify-center gap-4">
+                                {/* MOBILE SELECT MODULE */}
                                 <button onClick={() => setIsMobileSidebarOpen(true)} className="md:hidden w-full px-8 py-4 bg-white text-black font-bold rounded-lg uppercase tracking-widest text-xs hover:bg-slate-200 transition-colors flex items-center justify-center gap-2">
                                     <Smartphone className="w-4 h-4"/> Select Module
                                 </button>
-                               
-                                <div className="hidden md:flex items-center gap-2 text-xs font-mono text-slate-600">
+                              
+                                {/* CONTINUE WATCHING BUTTON */}
+                                {lastPlayedVideo && (
+                                    <button 
+                                        onClick={() => playVideo(lastPlayedVideo)}
+                                        className="w-full md:w-auto px-8 py-4 bg-indigo-600 text-white font-bold rounded-lg uppercase tracking-widest text-xs hover:bg-indigo-500 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
+                                    >
+                                        <Play className="w-4 h-4" /> 
+                                        Continue: <span className="truncate max-w-[200px] normal-case font-medium">{lastPlayedVideo.name.replace(/\.[^/.]+$/, "")}</span>
+                                    </button>
+                                )}
+
+                                <div className="hidden md:flex items-center gap-2 text-xs font-mono text-slate-600 mt-2">
                                     <ShieldCheck className="w-4 h-4 text-green-500" />
                                     <span> CONSISTENCY IS KEY</span>
-                                    <span>Select Module to Start</span>
+                                    {!lastPlayedVideo && <span>Select Module to Start</span>}
                                 </div>
                             </div>
                         </motion.div>

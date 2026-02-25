@@ -2,25 +2,39 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { 
   Play, Pause, Maximize, Minimize, Volume2, VolumeX, 
-  Settings, Loader2, Rewind, FastForward, CheckCircle2 
+  Settings, Loader2, Rewind, FastForward, CheckCircle2,
+  SkipBack, SkipForward 
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePlayer } from "@/hooks/usePlayer"; // Assuming you have this hook
+import { usePlayer } from "@/hooks/usePlayer";
 
 interface VideoManagerProps {
   videoSrc: string;
-  file: any; // The current video file object
+  file: any; 
   onVideoEnded?: () => void;
   autoPlay?: boolean;
+  onNext?: () => void;
+  onPrev?: () => void;
+  hasNext?: boolean;
+  hasPrev?: boolean;
 }
 
-export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = true }: VideoManagerProps) {
+export default function VideoManager({ 
+  videoSrc, 
+  file, 
+  onVideoEnded, 
+  autoPlay = true,
+  onNext,
+  onPrev,
+  hasNext = true,
+  hasPrev = true
+}: VideoManagerProps) {
   // --- STATE ---
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0); // 0 to 100
+  const [progress, setProgress] = useState(0); 
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -38,7 +52,7 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
   const lastTapTime = useRef<number>(0);
   const isSeeking = useRef(false);
 
-  // Hook for keyboard shortcuts (optional, depends on your usePlayer hook)
+  // Hook for keyboard shortcuts
   usePlayer(videoRef, (speed) => setPlaybackSpeed(speed));
 
   // --- CONTROLS VISIBILITY ---
@@ -98,7 +112,6 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
     // Save progress every 5s
     if (Math.floor(ct) % 5 === 0) localStorage.setItem(`timestamp_${file.id}`, ct.toString());
     
-    // Mark as watched (handled by parent via prop if needed)
     if (dur > 0 && ct >= dur - 1 && onVideoEnded) {
        onVideoEnded();
     }
@@ -120,7 +133,6 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
     if (!document.fullscreenElement) {
       await containerRef.current.requestFullscreen();
       setIsFullscreen(true);
-      // Try to lock landscape on mobile
       try { await (screen as any).orientation.lock('landscape'); } catch {}
     } else {
       await document.exitFullscreen();
@@ -131,7 +143,6 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
 
   // --- GESTURES ---
   const handleTap = (e: React.MouseEvent) => {
-    // Ignore clicks on controls
     if ((e.target as HTMLElement).closest('.controls-layer')) return;
 
     const now = Date.now();
@@ -164,7 +175,6 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
     lastTapTime.current = now;
   };
 
-  // Format time mm:ss
   const formatTime = (s: number) => {
     if (isNaN(s)) return "0:00";
     const m = Math.floor(s / 60);
@@ -226,23 +236,18 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
         initial={{ opacity: 0 }}
         animate={{ opacity: showControls ? 1 : 0 }}
         transition={{ duration: 0.2 }}
-        onClick={(e) => e.stopPropagation()} // Prevent touches here from triggering video toggle
+        onClick={(e) => e.stopPropagation()} 
       >
-        {/* PROGRESS BAR (Clean & Sleek) */}
         <div className="relative group/scrubber w-full h-4 flex items-center cursor-pointer mb-4">
-            {/* Background Track */}
             <div className="absolute inset-x-0 h-1 bg-white/20 rounded-full overflow-hidden">
-                 {/* Buffered/Played Track */}
                  <div className="h-full bg-indigo-500" style={{ width: `${progress}%` }} />
             </div>
             
-            {/* Thumb (Hidden by default, visible on hover/drag) */}
             <div 
                 className="absolute w-3.5 h-3.5 bg-white rounded-full shadow-md opacity-0 group-hover/scrubber:opacity-100 transition-opacity duration-200"
                 style={{ left: `${progress}%`, transform: 'translateX(-50%)' }}
             />
             
-            {/* Invisible Input for Touch */}
             <input
                 type="range" min="0" max="100" step="0.1"
                 value={progress}
@@ -255,14 +260,32 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
             />
         </div>
 
-        {/* BUTTONS ROW */}
         <div className="flex items-center justify-between">
             
-            {/* LEFT: Play & Volume */}
+            {/* LEFT: Play, Prev, Next & Volume */}
             <div className="flex items-center gap-4">
-                <button onClick={togglePlay} className="text-white hover:text-indigo-400 transition-colors p-1">
-                    {isPlaying ? <Pause className="w-6 h-6 fill-current"/> : <Play className="w-6 h-6 fill-current"/>}
-                </button>
+                
+                <div className="flex items-center gap-3">
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onPrev?.(); }} 
+                        disabled={!hasPrev}
+                        className={`transition-colors p-1 ${hasPrev ? 'text-white hover:text-indigo-400' : 'text-white/30 cursor-not-allowed'}`}
+                    >
+                        <SkipBack className="w-5 h-5 fill-current"/>
+                    </button>
+
+                    <button onClick={togglePlay} className="text-white hover:text-indigo-400 transition-colors p-1">
+                        {isPlaying ? <Pause className="w-6 h-6 fill-current"/> : <Play className="w-6 h-6 fill-current"/>}
+                    </button>
+
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); onNext?.(); }} 
+                        disabled={!hasNext}
+                        className={`transition-colors p-1 ${hasNext ? 'text-white hover:text-indigo-400' : 'text-white/30 cursor-not-allowed'}`}
+                    >
+                        <SkipForward className="w-5 h-5 fill-current"/>
+                    </button>
+                </div>
 
                 {/* Time Display */}
                 <div className="text-xs font-mono text-slate-300">
@@ -271,7 +294,7 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
                     <span>{formatTime(duration)}</span>
                 </div>
 
-                {/* Volume (Hidden on Mobile) */}
+                {/* Volume */}
                 <div className="hidden md:flex items-center gap-2 group/vol">
                     <button onClick={() => { setIsMuted(!isMuted); if(videoRef.current) videoRef.current.muted = !isMuted; }} className="text-slate-300 hover:text-white">
                         {isMuted ? <VolumeX className="w-5 h-5"/> : <Volume2 className="w-5 h-5"/>}
@@ -294,7 +317,6 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
 
             {/* RIGHT: Speed & Fullscreen */}
             <div className="flex items-center gap-4">
-                {/* Speed Menu (Positioned upwards to avoid overlap) */}
                 <div className="relative">
                     <button 
                         onClick={() => setShowSpeedMenu(!showSpeedMenu)}
@@ -311,7 +333,7 @@ export default function VideoManager({ videoSrc, file, onVideoEnded, autoPlay = 
                                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
                                 className="absolute bottom-full right-0 mb-3 w-24 bg-zinc-900/95 backdrop-blur-md border border-white/10 rounded-lg shadow-xl overflow-hidden py-1"
                             >
-                                {[1.0, 1.25, 1.5, 2.0, 2.25, 2.5].map(speed => (
+                                {[1.0, 1.5, 2.0, 2.3, 2.5, 2.75, 3, 3.15, 3.25, 3.35, 3.5, 3.6].map(speed => (
                                     <button
                                         key={speed}
                                         onClick={() => { 
