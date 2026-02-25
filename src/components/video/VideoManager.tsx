@@ -333,7 +333,7 @@ export default function VideoManager({
                                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
                                 className="absolute bottom-full right-0 mb-3 w-24 bg-zinc-900/95 backdrop-blur-md border border-white/10 rounded-lg shadow-xl overflow-hidden py-1"
                             >
-                                {[1.0, 1.5, 2.0, 2.3, 2.5, 2.75, 3, 3.15, 3.25, 3.35, 3.5, 3.6].map(speed => (
+                                {[1.0, 1.5, 2.0, 2.3, 2.5, 2.7, 2.83, 3, 3.15, 3.25, 3.35, 3.5].map(speed => (
                                     <button
                                         key={speed}
                                         onClick={() => { 
