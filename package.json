@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@types/crypto-js": "^4.2.2",
+    "@vercel/analytics": "^2.0.1",
     "clsx": "^2.1.1",
     "crypto-js": "^4.2.0",
     "dotenv": "^17.2.3",
